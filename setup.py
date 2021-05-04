@@ -7,7 +7,7 @@ with open("requirements.txt") as f:
     requires = f.read().splitlines()
 
 setuptools.setup(
-    name="ondewo-client-utils-python",
+    name="ondewo-client-utils",
     version="1.1.3",
     author="Ondewo GbmH",
     author_email="info@ondewo.com",
