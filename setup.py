@@ -8,7 +8,7 @@ with open("requirements.txt") as f:
 
 setuptools.setup(
     name="ondewo-client-utils",
-    version="0.1.0",
+    version="0.1.1",
     author="Ondewo GbmH",
     author_email="info@ondewo.com",
     description="This library contains utilities and base classes for gRPC clients.",
