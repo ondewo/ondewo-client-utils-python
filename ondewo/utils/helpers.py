@@ -1,4 +1,4 @@
-# Copyright 2021 ONDEWO GmbH
+# Copyright 2020-2023 ONDEWO GmbH
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,7 +14,10 @@
 
 
 import functools
-from typing import Any, Dict
+from typing import (
+    Any,
+    Dict,
+)
 
 from google.protobuf.struct_pb2 import Struct
 

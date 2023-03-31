@@ -1,2 +1,11 @@
-mypy
+flake8==6.0.0
+mypy==0.971
 pre-commit
+
+#mypy types
+types-mock
+types-protobuf
+types-pytz
+types-requests
+types-setuptools
+types-toml

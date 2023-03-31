@@ -1,4 +1,4 @@
-# Copyright 2021 ONDEWO GmbH
+# Copyright 2020-2023 ONDEWO GmbH
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,15 +13,29 @@
 # limitations under the License.
 
 
-from abc import ABC, abstractmethod
+from abc import (
+    ABC,
+    abstractmethod,
+)
 from logging import warning
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import (
+    Any,
+    Dict,
+    List,
+    Optional,
+    Set,
+    Tuple,
+)
 
 import grpc
 
 from ondewo.utils.base_client_config import BaseClientConfig
 
-MAX_MESSAGE_LENGTH = 20 * 1024 * 1024  # 20MB
+# MAX_MESSAGE_LENGTH = 20 * 1024 * 1024  # 20MB
+# MAX_MESSAGE_LENGTH = 20 * 1024 * 1024  # 20MB
+
+# Set the maximum message size to 500 MB in bytes
+MAX_MESSAGE_LENGTH = 500 * 1024 * 1024
 
 
 def get_secure_channel(
