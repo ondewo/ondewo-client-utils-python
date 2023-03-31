@@ -18,7 +18,7 @@ export
 # 2 - Update RELEASE.md
 # 3 - make update_setup
 #
-# Fully automated build and deploy process for ondewo-logging-client-python
+# Fully automated build and deploy process for ondewo-client-utils-python
 # Release Process Steps:
 # 1 - Create Release Branch and push
 # 2 - Create Release Tag and push
@@ -37,7 +37,7 @@ PYPI_PASSWORD?=ENTER_HERE_YOUR_PYPI_PASSWORD
 GITHUB_GH_TOKEN?=ENTER_YOUR_TOKEN_HERE
 
 CURRENT_RELEASE_NOTES=`cat RELEASE.md \
-	| sed -n '/Release ONDEWO LOGGING PYTHON ${ONDEWO_PACKAGE_VERSION}/,/\*\*/p'`
+	| sed -n '/Release ONDEWO CLIENT UTILS PYTHON ${ONDEWO_PACKAGE_VERSION}/,/\*\*/p'`
 
 
 # Choose repo to release to - Example: "https://github.com/ondewo/ondewo-nlu-client-python"
@@ -84,7 +84,7 @@ makefile_chapters: ## Shows all sections of Makefile
 	@echo `cat Makefile| grep "########################################################" -A 1 | grep -v "########################################################"`
 
 # BEFORE "release"
-update_setup: ## Update Logging Version in setup.py
+update_setup: ## Update version in setup.py
 	@sed -i "s/version='[0-9]*.[0-9]*.[0-9]*'/version='${ONDEWO_PACKAGE_VERSION}'/g" setup.py
 
 release: create_release_branch create_release_tag build_and_release_to_github_via_docker build_and_push_to_pypi_via_docker ## Automate the entire release process
@@ -125,8 +125,8 @@ push_to_pypi_via_docker_image:  ## Push source code to pypi via docker
 	rm -rf dist
 
 show_pypi: build_package
-	tar xvfz dist/ondewo-logging-${ONDEWO_PACKAGE_VERSION}.tar.gz
-	tree ondewo-logging-${ONDEWO_PACKAGE_VERSION}
+	tar xvfz dist/ondewo-client-utils-${ONDEWO_PACKAGE_VERSION}.tar.gz
+	tree ondewo-client-utils-${ONDEWO_PACKAGE_VERSION}
 
 show_pypi_via_docker_image: build_utils_docker_image ## Push source code to pypi via docker
 	[ -d $(OUTPUT_DIR) ] || mkdir -p $(OUTPUT_DIR)
@@ -157,7 +157,7 @@ upload_package:
 	twine upload --verbose -r pypi dist/* -u${PYPI_USERNAME} -p${PYPI_PASSWORD}
 
 clear_package_data:
-	rm -rf build dist/* ondewo_logging.egg-info
+	rm -rf build dist/* ondewo-client-utils.egg-info
 
 ondewo_release: spc clone_devops_accounts run_release_with_devops ## Release with credentials from devops-accounts repo
 	@rm -rf ${DEVOPS_ACCOUNT_GIT}
