@@ -23,16 +23,16 @@ long_description: str = read_file('README.md')
 requires: List[str] = read_requirements('requirements.txt')
 
 setuptools.setup(
-    name="ondewo-client-utils",
-    version="1.0.0",
-    author="Ondewo GbmH",
-    author_email="info@ondewo.com",
-    description="This library contains utilities and base classes for gRPC clients.",
+    name='ondewo-client-utils',
+    version='1.0.0',
+    author='Ondewo GbmH',
+    author_email='info@ondewo.com',
+    description='This library contains utilities and base classes for gRPC clients.',
     long_description=long_description,
     include_package_data=True,
     long_description_content_type='text/markdown',
-    url="https://github.com/ondewo/ondewo-client-utils-python",
-    packages=setuptools.find_packages(include=["ondewo*", ]),
+    url='https://github.com/ondewo/ondewo-client-utils-python',
+    packages=setuptools.find_packages(include=['ondewo*', ]),
     # https://pypi.org/pypi?%3Aaction=list_classifiers
     classifiers=[
         'Development Status :: 4 - Beta',
