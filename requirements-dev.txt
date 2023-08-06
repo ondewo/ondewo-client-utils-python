@@ -1,5 +1,5 @@
 flake8==6.0.0
-mypy==0.971
+mypy>=0.971
 pre-commit
 
 #mypy types

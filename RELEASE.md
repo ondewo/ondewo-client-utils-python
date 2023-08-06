@@ -2,6 +2,14 @@
 
 *****************
 
+## Release ONDEWO CLIENT UTILS PYTHON 1.0.1
+
+### Improvements
+
+* Relaxed requirements of grpc libraries
+
+*****************
+
 ## Release ONDEWO CLIENT UTILS PYTHON 1.0.0
 
 ### Improvements

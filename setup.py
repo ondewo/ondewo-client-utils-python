@@ -24,7 +24,7 @@ requires: List[str] = read_requirements('requirements.txt')
 
 setuptools.setup(
     name='ondewo-client-utils',
-    version='1.0.0',
+    version='1.0.1',
     author='Ondewo GbmH',
     author_email='info@ondewo.com',
     description='This library contains utilities and base classes for gRPC clients.',
