@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import json
 import struct
 from abc import (
     ABC,
@@ -72,9 +73,48 @@ class BaseServicesInterface(ABC):
         use_secure_channel: bool,
         options: Optional[Set[Tuple[str, Any]]] = None,
     ) -> None:
+
+        # https://github.com/grpc/grpc-proto/blob/master/grpc/service_config/service_config.proto
+        service_config_json: str = json.dumps(
+            {
+                "methodConfig": [
+                    {
+                        # To apply retry to all methods, put [{}] in the "name" field
+                        "name": [
+                            {"service": "helloworld.Greeter", "method": "SayHello"}
+                        ],
+                        "retryPolicy": {
+                            "maxAttempts": 10,
+                            "initialBackoff": "0.1s",
+                            "maxBackoff": "3s",
+                            "backoffMultiplier": 2,
+                            "retryableStatusCodes": [
+                                grpc.StatusCode.CANCELLED.name,
+                                grpc.StatusCode.UNKNOWN.name,
+                                grpc.StatusCode.DEADLINE_EXCEEDED.name,
+                                grpc.StatusCode.NOT_FOUND.name,
+                                grpc.StatusCode.RESOURCE_EXHAUSTED.name,
+                                grpc.StatusCode.ABORTED.name,
+                                grpc.StatusCode.INTERNAL.name,
+                                grpc.StatusCode.UNAVAILABLE.name,
+                                grpc.StatusCode.DATA_LOSS.name,
+                            ],
+                        },
+                    }
+                ]
+            }
+        )
+
         default_options: Dict[str, Any] = {
             "grpc.max_send_message_length": MAX_MESSAGE_LENGTH,
             "grpc.max_receive_message_length": MAX_MESSAGE_LENGTH,
+            "grpc.keepalive_time_ms": 2 ** 31 - 1,
+            "grpc.keepalive_timeout_ms": 60000,
+            "grpc.keepalive_permit_without_calls": False,
+            "grpc.http2.max_pings_without_data": 2,
+            "grpc.dns_enable_srv_queries": 1,
+            "grpc.enable_retries": 1,
+            "grpc.service_config": service_config_json,
         }
 
         if options:
