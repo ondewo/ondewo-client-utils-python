@@ -27,7 +27,7 @@ export
 
 # MUST BE THE SAME AS API in Mayor and Minor Version Number
 # example: API 2.9.0 --> Client 2.9.X
-ONDEWO_PACKAGE_VERSION=1.0.1
+ONDEWO_PACKAGE_VERSION=$(shell cat ondewo/version.py | sed "s:__version__ = '::"  | sed "s:'::")
 
 
 PYPI_USERNAME?=ENTER_HERE_YOUR_PYPI_USERNAME
@@ -84,9 +84,6 @@ makefile_chapters: ## Shows all sections of Makefile
 	@echo `cat Makefile| grep "########################################################" -A 1 | grep -v "########################################################"`
 
 # BEFORE "release"
-update_setup: ## Update version in setup.py
-	@sed -i "s/version='[0-9]*.[0-9]*.[0-9]*'/version='${ONDEWO_PACKAGE_VERSION}'/g" setup.py
-
 release: create_release_branch create_release_tag build_and_release_to_github_via_docker build_and_push_to_pypi_via_docker ## Automate the entire release process
 	@echo "Release Finished"
 

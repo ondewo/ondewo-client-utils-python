@@ -1,4 +1,4 @@
-FROM python:3.8-slim
+FROM python:3.10-slim
 
 ENV LANG=C.UTF-8
 ENV DEBIAN_FRONTEND=noninteractive
@@ -29,25 +29,27 @@ WORKDIR /home/ondewo/
 
 COPY Makefile .
 
+COPY .flake8 .
+
+COPY .isort.cfg  .
+
+COPY .pre-commit-config.yaml .
+
+COPY CONTRIBUTING.md .
+
+COPY LICENSE .
+
+COPY MANIFEST.in .
+
+COPY mypy.ini .
+
 COPY requirements.txt .
 
 COPY setup.py  .
 
-COPY .isort.cfg  .
-
-COPY .flake8  .
-
-COPY .pre-commit-config.yaml  .
-
-COPY LICENSE  .
-
 COPY setup.cfg .
 
-COPY mypy.ini .
-
 COPY README.md .
-
-COPY MANIFEST.in .
 
 COPY RELEASE.md .
 

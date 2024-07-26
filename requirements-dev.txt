@@ -1,5 +1,5 @@
-flake8==6.0.0
-mypy>=0.971
+flake8>=7.1.0
+mypy>=1.11.0
 pre-commit
 
 #mypy types
