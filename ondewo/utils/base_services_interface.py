@@ -1,4 +1,4 @@
-# Copyright 2020-2023 ONDEWO GmbH
+# Copyright 2020-2024 ONDEWO GmbH
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -11,8 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
-
+import struct
 from abc import (
     ABC,
     abstractmethod,
@@ -31,11 +30,7 @@ import grpc
 
 from ondewo.utils.base_client_config import BaseClientConfig
 
-# MAX_MESSAGE_LENGTH = 20 * 1024 * 1024  # 20MB
-# MAX_MESSAGE_LENGTH = 20 * 1024 * 1024  # 20MB
-
-# Set the maximum message size to 500 MB in bytes
-MAX_MESSAGE_LENGTH = 500 * 1024 * 1024
+MAX_MESSAGE_LENGTH = 2 ** (struct.Struct("i").size * 8 - 1) - 1
 
 
 def get_secure_channel(
@@ -44,7 +39,11 @@ def get_secure_channel(
     options: Optional[List[Tuple[str, Any]]] = None,
 ) -> grpc.Channel:
     credentials = grpc.ssl_channel_credentials(root_certificates=cert)
-    return grpc.secure_channel(host, credentials, options=options)
+    return grpc.secure_channel(
+        target=host,
+        credentials=credentials,
+        options=options,
+    )
 
 
 def _get_grpc_channel(
@@ -79,12 +78,14 @@ class BaseServicesInterface(ABC):
         }
 
         if options:
-            default_options = {**default_options, **options}
+            default_options.update(dict(options))
 
-        opt: List[Tuple[str, Any]] = [(k, default_options[k]) for k in default_options.keys()]
+        updated_options: List[Tuple[str, Any]] = list(default_options.items())
 
         self.grpc_channel: grpc.Channel = _get_grpc_channel(
-            config, use_secure_channel=use_secure_channel, options=opt
+            config=config,
+            use_secure_channel=use_secure_channel,
+            options=updated_options,
         )
 
     @property

@@ -1,4 +1,4 @@
-# Copyright 2020-2023 ONDEWO GmbH
+# Copyright 2020-2024 ONDEWO GmbH
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -11,7 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 
 from dataclasses import dataclass
 from typing import Optional
@@ -26,12 +25,13 @@ class BaseClientConfig:
     Configuration for the ONDEWO python client.
 
     Attributes:
-        host: str ... IP address of the ONDEWO QA services host (e.g. 'localhost', '127.22.444.11', etc)
-        port: str ... port of the ONDEWO QA services host (e.g. '50444', etc)
-        grpc_cert: Optional[str] = None ... the certificate required for setting up a secure grpc channel;
-            this field must be set unless the client is instantiated using `use_secure_channel=False`
-            (not recommended)
-
+        host (str):
+            IP address of the ONDEWO QA services host (e.g., 'localhost', '127.22.444.11', etc.)
+        port (str):
+            Port of the ONDEWO QA services host (e.g., '50444', etc.)
+        grpc_cert (Optional[str]):
+            The certificate required for setting up a secure gRPC channel. This field must be set unless
+            the client is instantiated using `use_secure_channel=False` (not recommended).
     """
 
     host: str
@@ -43,4 +43,10 @@ class BaseClientConfig:
 
     @property
     def host_and_port(self) -> str:
+        """
+        Returns the host and port as a single string.
+
+        Returns:
+            str: The host and port in the format "host:port".
+        """
         return f"{self.host}:{self.port}"
