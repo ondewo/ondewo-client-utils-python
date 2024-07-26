@@ -2,6 +2,14 @@
 
 *****************
 
+## Release ONDEWO CLIENT UTILS PYTHON 2.0.0
+
+### Improvements
+
+* Added functionality to pass grpc options to grpc clients
+
+*****************
+
 ## Release ONDEWO CLIENT UTILS PYTHON 1.0.1
 
 ### Improvements
