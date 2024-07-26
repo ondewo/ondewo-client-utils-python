@@ -3,8 +3,6 @@ from typing import List
 
 import setuptools
 
-from ondewo.version import __version__
-
 
 def read_file(file_path: str, encoding: str = 'utf-8') -> str:
     with open(file_path, 'r', encoding=encoding) as f:
@@ -26,7 +24,7 @@ requires: List[str] = read_requirements('requirements.txt')
 
 setuptools.setup(
     name='ondewo-client-utils',
-    version=f'{__version__}',
+    version='2.0.0',
     author='Ondewo GmbH',
     author_email='office@ondewo.com',
     description='This library contains utilities and base classes for gRPC clients.',

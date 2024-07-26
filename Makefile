@@ -84,6 +84,9 @@ makefile_chapters: ## Shows all sections of Makefile
 	@echo `cat Makefile| grep "########################################################" -A 1 | grep -v "########################################################"`
 
 # BEFORE "release"
+update_setup: ## Update version in setup.py
+	@sed -i "s/version='[0-9]*.[0-9]*.[0-9]*'/version='${ONDEWO_PACKAGE_VERSION}'/g" setup.py
+
 release: create_release_branch create_release_tag build_and_release_to_github_via_docker build_and_push_to_pypi_via_docker ## Automate the entire release process
 	@echo "Release Finished"
 
