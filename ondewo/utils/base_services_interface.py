@@ -79,9 +79,11 @@ class BaseServicesInterface(ABC):
             {
                 "methodConfig": [
                     {
-                        # To apply retry to all methods, put [{}] in the "name" field
                         "name": [
-                            {"service": "helloworld.Greeter", "method": "SayHello"}
+                            # To apply retry to all methods, put [{}] in the "name" field
+                            {}
+                            # For a specific set of services and endpoint calls
+                            # {"service": "helloworld.Greeter", "method": "SayHello"}
                         ],
                         "retryPolicy": {
                             "maxAttempts": 10,
