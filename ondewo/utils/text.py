@@ -19,6 +19,7 @@ from regex import regex
 
 
 class TextHelper:
+
     FROM_CAMEL_TO_SNAKE_PATTERN: Pattern = regex.compile(r"((?<=[a-z])[A-Z]|(?!^)[A-Z](?=[a-z]))")
 
     @classmethod
