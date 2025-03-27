@@ -2,6 +2,22 @@
 
 *****************
 
+## Release ONDEWO CLIENT UTILS PYTHON 3.1.0
+
+### Improvements
+
+* Added async client functionality
+
+*****************
+
+## Release ONDEWO CLIENT UTILS PYTHON 3.0.0
+
+### Improvements
+
+* Automated versioning of the package
+
+*****************
+
 ## Release ONDEWO CLIENT UTILS PYTHON 2.0.0
 
 ### Improvements
