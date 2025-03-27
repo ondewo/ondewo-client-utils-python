@@ -25,7 +25,7 @@ from typing import (
 
 from ondewo.utils.base_client_config import BaseClientConfig
 from ondewo.utils.base_service_container import BaseServicesContainer
-from ondewo.utils.base_services_interface import BaseServicesInterface
+from ondewo.utils.async_base_services_interface import AsyncBaseServicesInterface
 
 
 class AsyncBaseClient(ABC):
@@ -81,7 +81,7 @@ class AsyncBaseClient(ABC):
             raise AttributeError("The attribute `services` is not defined.")
 
         for service_name in self.services.__annotations__.keys():
-            service: BaseServicesInterface = self.services.__getattribute__(service_name)
+            service: AsyncBaseServicesInterface = self.services.__getattribute__(service_name)
             await service.grpc_channel.close()
 
         self.services = None
