@@ -40,7 +40,7 @@ export
 
 # MUST BE THE SAME AS API in Mayor and Minor Version Number
 # example: API 2.9.0 --> Client 2.9.X
-ONDEWO_PACKAGE_VERSION=$(shell cat ondewo/version.py | sed "s:__version__ = '::"  | sed "s:'::")
+ONDEWO_PACKAGE_VERSION=$(shell sed -nE "s/^__version__[^=]*= *'([^']+)'.*/\1/p" ondewo/version.py)
 
 
 PYPI_USERNAME?=ENTER_HERE_YOUR_PYPI_USERNAME
@@ -88,6 +88,9 @@ flake8: ## Runs flake8
 
 mypy: ## Run mypy static code checking
 	pre-commit run mypy --all-files
+
+cythonize: ## Compile the pure-Python ondewo modules into native extensions (skips dataclasses)
+	python cython_compile.py build_ext --inplace
 
 help: ## Print usage info about help targets
 	# (first comment after target starting with double hashes ##)

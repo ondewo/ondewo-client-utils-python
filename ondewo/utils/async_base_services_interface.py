@@ -11,6 +11,11 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+"""Async gRPC service interface base classes and channel factory helpers.
+
+Async counterpart of ``base_services_interface`` built on ``grpc.aio``: it
+provides channel factory helpers and the abstract ``AsyncBaseServicesInterface``.
+"""
 
 import json
 import struct
@@ -33,7 +38,7 @@ import grpc
 
 from ondewo.utils.base_client_config import BaseClientConfig
 
-MAX_MESSAGE_LENGTH = 2 ** (struct.Struct("i").size * 8 - 1) - 1
+MAX_MESSAGE_LENGTH: int = 2 ** (struct.Struct("i").size * 8 - 1) - 1
 
 # The gRPC service config and default channel options are constant. They are
 # serialized/assembled once at import time instead of on every service
@@ -93,8 +98,24 @@ def get_secure_channel(
     cert: str,
     options: Optional[List[Tuple[str, Any]]] = None,
 ) -> grpc.aio.Channel:
+    """
+    Create a secure asynchronous gRPC channel to the given host.
+
+    Args:
+        host (str):
+            Target address in the form "host:port" to connect to.
+        cert (str):
+            Root certificate used to establish the TLS connection. At runtime this
+            value is ``bytes`` (encoded by ``BaseClientConfig.__post_init__``).
+        options (Optional[List[Tuple[str, Any]]]):
+            Optional list of gRPC channel options as (key, value) tuples.
+
+    Returns:
+        grpc.aio.Channel:
+            A secure asynchronous gRPC channel connected to the target host.
+    """
     # cert is bytes at runtime (BaseClientConfig.__post_init__ encodes it).
-    credentials = grpc.ssl_channel_credentials(root_certificates=cast(bytes, cert))
+    credentials: grpc.ChannelCredentials = grpc.ssl_channel_credentials(root_certificates=cast(bytes, cert))
     return grpc.aio.secure_channel(
         target=host,
         credentials=credentials,
@@ -107,6 +128,26 @@ def _get_grpc_channel(
     use_secure_channel: bool,
     options: Optional[List[Tuple[str, Any]]] = None,
 ) -> grpc.aio.Channel:
+    """
+    Build an asynchronous gRPC channel, secure or insecure, from a client config.
+
+    Args:
+        config (BaseClientConfig):
+            Client configuration providing the host, port and optional certificate.
+        use_secure_channel (bool):
+            Whether to create a secure (TLS) channel. If False an insecure channel
+            is created instead.
+        options (Optional[List[Tuple[str, Any]]]):
+            Optional list of gRPC channel options as (key, value) tuples.
+
+    Returns:
+        grpc.aio.Channel:
+            A secure or insecure asynchronous gRPC channel.
+
+    Raises:
+        ValueError:
+            If a secure channel is requested but the config has no gRPC certificate.
+    """
     if not use_secure_channel:
         warning("Using insecure grpc channel.")
         return grpc.aio.insecure_channel(target=config.host_and_port, options=options)
@@ -122,12 +163,32 @@ def _get_grpc_channel(
 
 
 class AsyncBaseServicesInterface(ABC):
+    """
+    Abstract base class for async ONDEWO gRPC service interfaces.
+
+    Attributes:
+        grpc_channel (grpc.aio.Channel):
+            The asynchronous gRPC channel used to communicate with the service.
+    """
+
     def __init__(
         self,
         config: BaseClientConfig,
         use_secure_channel: bool,
         options: Optional[Set[Tuple[str, Any]]] = None,
     ) -> None:
+        """
+        Initialize the async service interface and open its gRPC channel.
+
+        Args:
+            config (BaseClientConfig):
+                Client configuration providing the host, port and optional certificate.
+            use_secure_channel (bool):
+                Whether to create a secure (TLS) channel.
+            options (Optional[Set[Tuple[str, Any]]]):
+                Optional set of gRPC channel options as (key, value) tuples that
+                override the default options.
+        """
 
         if options:
             merged_options: Dict[str, Any] = dict(_DEFAULT_GRPC_OPTIONS)
@@ -145,4 +206,11 @@ class AsyncBaseServicesInterface(ABC):
     @property
     @abstractmethod
     def stub(self) -> Any:
+        """
+        Return the concrete gRPC stub used to issue RPC calls.
+
+        Returns:
+            Any:
+                The gRPC service stub implemented by the concrete subclass.
+        """
         pass

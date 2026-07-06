@@ -12,6 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""
+Abstract base class for asynchronous ONDEWO gRPC Python clients.
+
+Provides the async counterpart of ``BaseClient`` with awaitable ``connect`` and
+``disconnect`` methods that manage the lifecycle of the underlying gRPC channels.
+"""
+
 from abc import (
     ABC,
     abstractmethod,
@@ -42,6 +49,21 @@ class AsyncBaseClient(ABC):
         use_secure_channel: bool = True,
         options: Optional[Set[Tuple[str, Any]]] = None,
     ) -> None:
+        """
+        Initialize the async client and its service clients.
+
+        Args:
+            config (BaseClientConfig):
+                Configuration for the client.
+            use_secure_channel (bool):
+                Whether to use a secure gRPC channel. Defaults to ``True``.
+            options (Optional[Set[Tuple[str, Any]]]):
+                Additional options for the gRPC channel. Defaults to ``None``.
+
+        Raises:
+            ValueError:
+                If the ``services`` attribute is not defined after initialization.
+        """
         self.services: Optional[BaseServicesContainer] = None
         self._initialize_services(
             config=config,
@@ -59,6 +81,17 @@ class AsyncBaseClient(ABC):
         use_secure_channel: bool,
         options: Optional[Set[Tuple[str, Any]]] = None,
     ) -> None:
+        """
+        Initialize the service clients.
+
+        Args:
+            config (BaseClientConfig):
+                Configuration for the client.
+            use_secure_channel (bool):
+                Whether to use a secure gRPC channel.
+            options (Optional[Set[Tuple[str, Any]]]):
+                Additional options for the gRPC channel. Defaults to ``None``.
+        """
         pass
 
     async def connect(
@@ -67,6 +100,21 @@ class AsyncBaseClient(ABC):
         use_secure_channel: bool,
         options: Optional[Set[Tuple[str, Any]]] = None,
     ) -> None:
+        """
+        Establish a connection to the services.
+
+        Args:
+            config (BaseClientConfig):
+                Configuration for the client.
+            use_secure_channel (bool):
+                Whether to use a secure gRPC channel.
+            options (Optional[Set[Tuple[str, Any]]]):
+                Additional options for the gRPC channel. Defaults to ``None``.
+
+        Raises:
+            ConnectionError:
+                If a connection is already established.
+        """
         if self.services:
             raise ConnectionError("The current client already has an open connection.")
 
@@ -77,6 +125,16 @@ class AsyncBaseClient(ABC):
         )
 
     async def disconnect(self) -> None:
+        """
+        Asynchronously close all gRPC channels and clear the services.
+
+        Awaits the graceful shutdown of each service's gRPC channel before
+        discarding the services container.
+
+        Raises:
+            AttributeError:
+                If the ``services`` attribute is not defined.
+        """
         if not self.services:
             raise AttributeError("The attribute `services` is not defined.")
 

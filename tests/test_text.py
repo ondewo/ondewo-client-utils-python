@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Parametrized tests for :meth:`TextHelper.from_camel_to_snake_case`."""
+
 import pytest
 
 from ondewo.utils.text import TextHelper
@@ -29,4 +31,17 @@ from ondewo.utils.text import TextHelper
     ],
 )
 def test_from_camel_to_snake_case(text: str, expected: str) -> None:
+    """
+    Verify that camelCase and PascalCase strings convert to snake_case.
+
+    Args:
+        text (str):
+            The input string to be converted to snake case.
+        expected (str):
+            The expected snake case result of the conversion.
+
+    Returns:
+        None:
+            This function returns nothing; it asserts on the conversion result.
+    """
     assert TextHelper.from_camel_to_snake_case(text) == expected

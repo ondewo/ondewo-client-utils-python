@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Abstract base class providing the synchronous scaffolding for ONDEWO gRPC clients."""
+
 from abc import (
     ABC,
     abstractmethod,
@@ -33,7 +35,9 @@ class BaseClient(ABC):
     Abstract base class for ONDEWO clients.
 
     Attributes:
-        services: A container for the service clients initialized by the client.
+        services (Optional[BaseServicesContainer]):
+            A container for the service clients initialized by the client, or ``None`` when the
+            client is not connected.
     """
 
     def __init__(
@@ -42,6 +46,21 @@ class BaseClient(ABC):
         use_secure_channel: bool = True,
         options: Optional[Set[Tuple[str, Any]]] = None,
     ) -> None:
+        """
+        Initialize the client and its service clients.
+
+        Args:
+            config (BaseClientConfig):
+                Configuration for the client.
+            use_secure_channel (bool):
+                Whether to use a secure gRPC channel. Defaults to ``True``.
+            options (Optional[Set[Tuple[str, Any]]]):
+                Additional options for the gRPC channel. Defaults to ``None``.
+
+        Raises:
+            ValueError:
+                If ``_initialize_services`` does not populate the ``services`` attribute.
+        """
         self.services: Optional[BaseServicesContainer] = None
         self._initialize_services(
             config=config,

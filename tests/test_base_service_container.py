@@ -12,11 +12,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""
+Unit tests for :class:`BaseServicesContainer`.
+
+Verify that ``BaseServicesContainer`` is a dataclass and can be instantiated.
+"""
+
 import dataclasses
 
 from ondewo.utils.base_service_container import BaseServicesContainer
 
 
 def test_is_dataclass_and_instantiable() -> None:
-    container = BaseServicesContainer()
+    """
+    Verify that ``BaseServicesContainer`` is a dataclass and can be instantiated.
+
+    Returns:
+        None:
+            This test returns nothing; it asserts on the container instead.
+    """
+    container: BaseServicesContainer = BaseServicesContainer()
     assert dataclasses.is_dataclass(container)

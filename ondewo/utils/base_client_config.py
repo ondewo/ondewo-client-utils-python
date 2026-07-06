@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Data class holding the host, port and gRPC certificate configuration for ONDEWO gRPC clients."""
+
 from dataclasses import dataclass
 from typing import Optional
 
@@ -39,14 +41,26 @@ class BaseClientConfig:
     grpc_cert: Optional[str] = None
 
     def __post_init__(self) -> None:
+        """
+        Encode the gRPC certificate to bytes after the frozen dataclass is initialised.
+
+        The certificate is provided as a ``str`` on construction and is transparently encoded to
+        ``bytes`` here using ``object.__setattr__`` (required because the dataclass is frozen). If
+        ``grpc_cert`` is ``None`` it is left unchanged.
+
+        Returns:
+            None:
+                This method mutates the instance in place and returns nothing.
+        """
         object.__setattr__(self, "grpc_cert", self.grpc_cert.encode() if self.grpc_cert else self.grpc_cert)
 
     @property
     def host_and_port(self) -> str:
         """
-        Returns the host and port as a single string.
+        Return the host and port combined into a single connection string.
 
         Returns:
-            str: The host and port in the format "host:port".
+            str:
+                The host and port in the format ``"host:port"``.
         """
         return f"{self.host}:{self.port}"

@@ -1,1 +1,3 @@
-__version__ = '3.2.0'
+"""Single source of truth for the version of the ``ondewo-client-utils`` package."""
+
+__version__: str = '3.2.0'
