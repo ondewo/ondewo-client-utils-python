@@ -2,6 +2,16 @@
 
 *****************
 
+## Release ONDEWO CLIENT UTILS PYTHON 3.2.0
+
+### Improvements
+
+* Serialize the gRPC service config and default channel options once at import instead of on every service construction
+* Enabled gRPC keepalive to keep long-lived streaming RPCs warm and detect half-open connections
+* Added a test suite with 100% coverage and a GitHub Actions workflow running the tests on every push and pull request
+
+*****************
+
 ## Release ONDEWO CLIENT UTILS PYTHON 3.1.0
 
 ### Improvements
