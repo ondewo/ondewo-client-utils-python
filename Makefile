@@ -1,3 +1,16 @@
+# Makefile for ondewo-client-utils-python
+#
+# Documentation conventions used in this file:
+#   - Any target with a trailing `## <text>` comment is listed by `make help`.
+#   - Section banners (`####...`) are listed by `make makefile_chapters`.
+#
+# Common developer targets:
+#   make run_tests                            Build the pytest docker image and run the test suite
+#   make run_code_checks                      Run flake8 + mypy inside the code-checks docker image
+#   make flake8 / make mypy                   Run the linters directly in the current environment
+#   make setup_developer_environment_locally  Install pre-commit hooks and local dependencies
+#   make release                              Run the full automated release (branch, tag, GitHub, PyPI)
+
 PACKAGE_FOLDER := ondewo-client-utils
 TESTFILE := ondewo
 CODE_CHECK_IMAGE := code_check_image_${TESTFILE}
@@ -56,7 +69,7 @@ IMAGE_UTILS_NAME=ondewo-client-utils-python:${ONDEWO_PACKAGE_VERSION}
 #       ONDEWO Standard Make Targets
 ########################################################
 
-setup_developer_environment_locally: install_precommit_hooks install_dependencies_locally
+setup_developer_environment_locally: install_precommit_hooks install_dependencies_locally ## Set up the local dev environment (pre-commit hooks + dependencies)
 
 install_precommit_hooks: ## Installs pre-commit hooks and sets them up for the ondewo-csi-client repo
 	conda install -y pre-commit
@@ -78,7 +91,7 @@ mypy: ## Run mypy static code checking
 
 help: ## Print usage info about help targets
 	# (first comment after target starting with double hashes ##)
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' Makefile | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}'
+	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' Makefile | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}'
 
 makefile_chapters: ## Shows all sections of Makefile
 	@echo `cat Makefile| grep "########################################################" -A 1 | grep -v "########################################################"`
@@ -124,11 +137,11 @@ push_to_pypi_via_docker_image:  ## Push source code to pypi via docker
 		${IMAGE_UTILS_NAME} make push_to_pypi
 	rm -rf dist
 
-show_pypi: build_package
+show_pypi: build_package ## Build the package and print the contents of the resulting sdist
 	tar xvfz dist/ondewo-client-utils-${ONDEWO_PACKAGE_VERSION}.tar.gz
 	tree ondewo-client-utils-${ONDEWO_PACKAGE_VERSION}
 
-show_pypi_via_docker_image: build_utils_docker_image ## Push source code to pypi via docker
+show_pypi_via_docker_image: build_utils_docker_image ## Show the contents of the pypi package via docker
 	[ -d $(OUTPUT_DIR) ] || mkdir -p $(OUTPUT_DIR)
 	docker run --rm \
 		-v ${shell pwd}/dist:/home/ondewo/dist \
@@ -138,10 +151,10 @@ show_pypi_via_docker_image: build_utils_docker_image ## Push source code to pypi
 	rm -rf dist
 
 
-push_to_pypi: build_package upload_package clear_package_data
+push_to_pypi: build_package upload_package clear_package_data ## Build, upload to PyPI and clean up (run inside the release docker image)
 	@echo 'YAY - Pushed to pypi : )'
 
-push_to_gh: login_to_gh build_gh_release
+push_to_gh: login_to_gh build_gh_release ## Log in to GitHub and create the GitHub release (run inside the release docker image)
 	@echo 'Released to Github'
 
 release_to_github_via_docker_image:  ## Release to Github via docker
@@ -149,14 +162,14 @@ release_to_github_via_docker_image:  ## Release to Github via docker
 		-e GITHUB_GH_TOKEN=${GITHUB_GH_TOKEN} \
 		${IMAGE_UTILS_NAME} make push_to_gh
 
-build_package:
+build_package: ## Build the sdist and wheel into dist/
 	python setup.py sdist bdist_wheel
 	chmod a+rw dist -R
 
-upload_package:
+upload_package: ## Upload the built dist/* artifacts to PyPI with twine
 	twine upload --verbose -r pypi dist/* -u${PYPI_USERNAME} -p${PYPI_PASSWORD}
 
-clear_package_data:
+clear_package_data: ## Remove build artifacts (build/, dist/, *.egg-info)
 	rm -rf build dist/* ondewo-client-utils.egg-info
 
 ondewo_release: spc clone_devops_accounts run_release_with_devops ## Release with credentials from devops-accounts repo
@@ -169,13 +182,13 @@ clone_devops_accounts: ## Clones devops-accounts repo
 DEVOPS_ACCOUNT_GIT="ondewo-devops-accounts"
 DEVOPS_ACCOUNT_DIR="./${DEVOPS_ACCOUNT_GIT}"
 
-TEST:
+TEST: ## Debug: echo the resolved GitHub/PyPI credentials and current release notes
 	@echo ${GITHUB_GH_TOKEN}
 	@echo ${PYPI_USERNAME}
 	@echo ${PYPI_PASSWORD}
 	@echo ${CURRENT_RELEASE_NOTES}
 
-run_release_with_devops:
+run_release_with_devops: ## Load credentials from the devops-accounts repo and run the full release
 	$(eval info:= $(shell cat ${DEVOPS_ACCOUNT_DIR}/account_github.env | grep GITHUB_GH & cat ${DEVOPS_ACCOUNT_DIR}/account_pypi.env | grep PYPI_USERNAME & cat ${DEVOPS_ACCOUNT_DIR}/account_pypi.env | grep PYPI_PASSWORD))
 	make release $(info)
 
