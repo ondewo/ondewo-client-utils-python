@@ -12,4 +12,4 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Utilities and abstract base classes shared by ONDEWO gRPC Python clients."""
+"""Test suite for the ``ondewo.utils`` package."""
