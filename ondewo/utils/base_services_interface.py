@@ -76,10 +76,14 @@ _SERVICE_CONFIG_JSON: str = json.dumps(
 _DEFAULT_GRPC_OPTIONS: Dict[str, Any] = {
     "grpc.max_send_message_length": MAX_MESSAGE_LENGTH,
     "grpc.max_receive_message_length": MAX_MESSAGE_LENGTH,
-    "grpc.keepalive_time_ms": 2 ** 31 - 1,
+    # Keepalive keeps long-lived streaming RPCs warm and detects half-open
+    # connections. Pings fire only during active calls (permit_without_calls
+    # stays False) to avoid a server "too_many_pings" GOAWAY on idle channels;
+    # max_pings_without_data=0 lets pings continue through silent stream gaps.
+    "grpc.keepalive_time_ms": 30000,
     "grpc.keepalive_timeout_ms": 60000,
     "grpc.keepalive_permit_without_calls": False,
-    "grpc.http2.max_pings_without_data": 2,
+    "grpc.http2.max_pings_without_data": 0,
     "grpc.dns_enable_srv_queries": 1,
     "grpc.enable_retries": 1,
     "grpc.service_config": _SERVICE_CONFIG_JSON,

@@ -40,6 +40,16 @@ def test_max_message_length_is_int32_max() -> None:
     assert MAX_MESSAGE_LENGTH == 2 ** 31 - 1
 
 
+def test_keepalive_enabled_only_during_active_calls() -> None:
+    # Keepalive pings are on (long-lived streams stay warm, half-open sockets
+    # get detected) but only while a call is active, so idle channels never
+    # trigger a server "too_many_pings" GOAWAY.
+    options = absi._DEFAULT_GRPC_OPTIONS
+    assert options["grpc.keepalive_time_ms"] == 30000
+    assert options["grpc.keepalive_permit_without_calls"] is False
+    assert options["grpc.http2.max_pings_without_data"] == 0
+
+
 async def test_insecure_channel_without_options() -> None:
     service = _ConcreteAsyncService(config=_config(), use_secure_channel=False)
     assert service.grpc_channel is not None
