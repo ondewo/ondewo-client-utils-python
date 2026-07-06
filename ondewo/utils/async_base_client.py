@@ -82,6 +82,6 @@ class AsyncBaseClient(ABC):
 
         for service_name in self.services.__annotations__.keys():
             service: AsyncBaseServicesInterface = self.services.__getattribute__(service_name)
-            await service.grpc_channel.close()
+            await service.grpc_channel.close(grace=None)
 
         self.services = None

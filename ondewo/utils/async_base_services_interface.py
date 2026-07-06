@@ -26,6 +26,7 @@ from typing import (
     Optional,
     Set,
     Tuple,
+    cast,
 )
 
 import grpc
@@ -92,7 +93,8 @@ def get_secure_channel(
     cert: str,
     options: Optional[List[Tuple[str, Any]]] = None,
 ) -> grpc.aio.Channel:
-    credentials = grpc.ssl_channel_credentials(root_certificates=cert)
+    # cert is bytes at runtime (BaseClientConfig.__post_init__ encodes it).
+    credentials = grpc.ssl_channel_credentials(root_certificates=cast(bytes, cert))
     return grpc.aio.secure_channel(
         target=host,
         credentials=credentials,

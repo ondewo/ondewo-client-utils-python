@@ -85,7 +85,7 @@ async def test_disconnect_closes_channels_and_clears() -> None:
     client = _AsyncClient(config=_config())
     service = client.services.svc  # type: ignore[union-attr]
     await client.disconnect()
-    service.grpc_channel.close.assert_awaited_once_with()
+    service.grpc_channel.close.assert_awaited_once_with(grace=None)
     assert client.services is None
 
 
