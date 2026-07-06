@@ -1,0 +1,12 @@
+[run]
+branch = True
+source = ondewo/utils
+omit =
+    ondewo/version.py
+
+[report]
+show_missing = True
+exclude_lines =
+    pragma: no cover
+    @abstractmethod
+    raise NotImplementedError

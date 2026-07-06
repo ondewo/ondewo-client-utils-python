@@ -138,7 +138,8 @@ def test_get_secure_channel_builds_credentials() -> None:
         absi.grpc.aio, "secure_channel"
     ) as secure_channel:
         channel = get_secure_channel(host="localhost:50051", cert="cert-bytes", options=[])
-    creds.assert_called_once_with(root_certificates="cert-bytes")
+    # a str cert is normalized to bytes before being handed to gRPC
+    creds.assert_called_once_with(root_certificates=b"cert-bytes")
     secure_channel.assert_called_once()
     assert channel is secure_channel.return_value
 

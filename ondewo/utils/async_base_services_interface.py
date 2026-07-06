@@ -31,7 +31,7 @@ from typing import (
     Optional,
     Set,
     Tuple,
-    cast,
+    Union,
 )
 
 import grpc
@@ -95,7 +95,7 @@ _DEFAULT_GRPC_OPTIONS_ITEMS: List[Tuple[str, Any]] = list(_DEFAULT_GRPC_OPTIONS.
 
 def get_secure_channel(
     host: str,
-    cert: str,
+    cert: Union[str, bytes],
     options: Optional[List[Tuple[str, Any]]] = None,
 ) -> grpc.aio.Channel:
     """
@@ -104,9 +104,10 @@ def get_secure_channel(
     Args:
         host (str):
             Target address in the form "host:port" to connect to.
-        cert (str):
-            Root certificate used to establish the TLS connection. At runtime this
-            value is ``bytes`` (encoded by ``BaseClientConfig.__post_init__``).
+        cert (Union[str, bytes]):
+            Root certificate used to establish the TLS connection. A ``str`` is encoded to
+            ``bytes`` before being handed to gRPC; ``BaseClientConfig.__post_init__`` already
+            supplies ``bytes``.
         options (Optional[List[Tuple[str, Any]]]):
             Optional list of gRPC channel options as (key, value) tuples.
 
@@ -114,8 +115,8 @@ def get_secure_channel(
         grpc.aio.Channel:
             A secure asynchronous gRPC channel connected to the target host.
     """
-    # cert is bytes at runtime (BaseClientConfig.__post_init__ encodes it).
-    credentials: grpc.ChannelCredentials = grpc.ssl_channel_credentials(root_certificates=cast(bytes, cert))
+    root_certificates: bytes = cert.encode() if isinstance(cert, str) else cert
+    credentials: grpc.ChannelCredentials = grpc.ssl_channel_credentials(root_certificates=root_certificates)
     return grpc.aio.secure_channel(
         target=host,
         credentials=credentials,
