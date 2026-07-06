@@ -5,7 +5,7 @@ WORKDIR /home/ondewo
 COPY requirements.txt .
 RUN \
       pip3 install -U pip && \
-      pip3 install pytest && \
+      pip3 install pytest pytest-cov pytest-asyncio mock && \
       pip3 install -r requirements.txt
 
 ARG TESTFILE
