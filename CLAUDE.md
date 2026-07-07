@@ -180,3 +180,8 @@ Raises:
 - Use context managers for files, sockets, and thread pools.
 - Prefer region comments for grouping methods in files that already use them.
 - End edited Markdown and YAML files with a trailing newline.
+
+## Release / build gotchas (hard-won this session)
+
+- Downstream release images build on `python:3.12-slim`, which has **no `setuptools`** — anything running `python setup.py …` must `pip install setuptools wheel` first.
+- gRPC keepalive is enabled here (`keepalive_time_ms=30000`, `keepalive_permit_without_calls=False` so pings fire only during active calls → no server `too_many_pings` GOAWAY on idle channels; `max_pings_without_data=0` lets pings continue through silent stretches of a long stream). Do not "re-disable" it back to `2**31-1`.
