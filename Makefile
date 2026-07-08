@@ -141,8 +141,8 @@ push_to_pypi_via_docker_image:  ## Push source code to pypi via docker
 	rm -rf dist
 
 show_pypi: build_package ## Build the package and print the contents of the resulting sdist
-	tar xvfz dist/ondewo-client-utils-${ONDEWO_PACKAGE_VERSION}.tar.gz
-	tree ondewo-client-utils-${ONDEWO_PACKAGE_VERSION}
+	tar xvfz dist/ondewo_client_utils-${ONDEWO_PACKAGE_VERSION}.tar.gz
+	tree ondewo_client_utils-${ONDEWO_PACKAGE_VERSION}
 
 show_pypi_via_docker_image: build_utils_docker_image ## Show the contents of the pypi package via docker
 	[ -d $(OUTPUT_DIR) ] || mkdir -p $(OUTPUT_DIR)
@@ -166,14 +166,14 @@ release_to_github_via_docker_image:  ## Release to Github via docker
 		${IMAGE_UTILS_NAME} make push_to_gh
 
 build_package: ## Build the sdist and wheel into dist/
-	python setup.py sdist bdist_wheel
+	python -m build --no-isolation
 	chmod a+rw dist -R
 
 upload_package: ## Upload the built dist/* artifacts to PyPI with twine
 	twine upload --verbose -r pypi dist/* -u${PYPI_USERNAME} -p${PYPI_PASSWORD}
 
 clear_package_data: ## Remove build artifacts (build/, dist/, *.egg-info)
-	rm -rf build dist/* ondewo-client-utils.egg-info
+	rm -rf build dist/* ondewo_client_utils.egg-info
 
 ondewo_release: spc clone_devops_accounts run_release_with_devops ## Release with credentials from devops-accounts repo
 	@rm -rf ${DEVOPS_ACCOUNT_GIT}
@@ -198,7 +198,7 @@ run_release_with_devops: ## Load credentials from the devops-accounts repo and r
 spc: ## Checks if the Release Branch, Tag and Pypi version already exist
 	$(eval filtered_branches:= $(shell git branch --all | grep "release/${ONDEWO_PACKAGE_VERSION}"))
 	$(eval filtered_tags:= $(shell git tag --list | grep "${ONDEWO_PACKAGE_VERSION}"))
-	$(eval setuppy_version:= $(shell cat setup.py | grep "version"))
+	$(eval setuppy_version:= $(shell cat pyproject.toml | grep "version"))
 	@if test "$(filtered_branches)" != ""; then echo "-- Test 1: Branch exists!!" & exit 1; else echo "-- Test 1: Branch is fine";fi
 	@if test "$(filtered_tags)" != ""; then echo "-- Test 2: Tag exists!!" & exit 1; else echo "-- Test 2: Tag is fine";fi
 	# @if test "$(setuppy_version)" != "version='${ONDEWO_PACKAGE_VERSION}',"; then echo "-- Test 3: Setup.py not updated!!" & exit 1; else echo "-- Test 3: Setup.py is fine";fi

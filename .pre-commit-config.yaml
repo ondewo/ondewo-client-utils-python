@@ -1,11 +1,11 @@
 #############################################################################################
 # pre-commit is a "framework for managing and maintaining multi-language pre-commit hooks"  #
 # see https://pre-commit.com/#intro for an introduction to pre-commit                       #
-#                                                                                            #
+#                                                                                           #
 # - pre-commit hooks are run on staged files just before a commit or a push                 #
 # - to run a given hook on any file at any time, run the following on the command line:     #
 #    pre-commit run <HOOK_ID> --files <FILE1> <FILE2> ..., e.g.,                            #
-#    pre-commit run autopep8 --files mal_formatted_file.py                                  #
+#    pre-commit run ruff --files mal_formatted_file.py                                       #
 #############################################################################################
 exclude: '^$'
 # "exclude: '^$'" specifies the global file exclude pattern; '^$' excludes
@@ -14,11 +14,13 @@ fail_fast: false
 # "fail_fast: false" means pre-commit continues to run hooks after the first failure
 
 repos:
+
   - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.15.0
+    rev: v2.1.0
     hooks:
-      - id: mypy  # Run mypy type checker; runs with flag --missing-imports
-        args: [ --config-file=mypy.ini ]
+      - id: mypy  # Run mypy type checker; note: runs with flag --missing-imports
+        exclude: ondewo
+        args: [ --config-file=pyproject.toml ]
         # Use language: system to run Mypy git repo's existing virtual environment
         # instead of mypy's own virtual environment. Necessary to find types-.* packages
         # Replace language: python in your hook definition with language: system.
@@ -34,17 +36,18 @@ repos:
         verbose: true
         types: [ python ]
 
-  - repo: https://github.com/pre-commit/mirrors-autopep8
-    rev: v2.0.4
+  # Ruff replaces flake8 (lint) AND autopep8 (format). Config lives in pyproject.toml
+  # ([tool.ruff]).
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.20
     hooks:
-      - id: autopep8  # Perform pep8 auto-formatting
-        args: [ --max-line-length=120, --in-place ]
+      - id: ruff  # Lint (replaces flake8)
+        args: [ --fix ]
+      - id: ruff-format  # Format (replaces autopep8)
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v5.0.0
+    rev: v6.0.0
     hooks:
-#      - id: no-commit-to-branch  # Protect specific branches from direct checkins
-#        args: [ --branch, master ]
       - id: check-added-large-files  # Prevent giant files from being committed
         args: [ maxkb=1024 ]
       - id: check-ast  # Check whether files parse as valid python
@@ -62,21 +65,11 @@ repos:
         args: [ --autofix, --indent=4 ]
       - id: name-tests-test # name pytest files correctly
         args: [ --pytest-test-first ]
-        exclude: |
-          (?x)^(
-              tests/constants.py|
-              tests/test.py|
-          )$
       - id: requirements-txt-fixer  # Sorts the requirement.txt files' content
         files: 'requirements.*\.txt$'
 
-  - repo: https://github.com/pycqa/flake8
-    rev: 7.1.2
-    hooks:
-      - id: flake8
-
   - repo: https://github.com/milin/giticket
-    rev: v1.4
+    rev: '1.92'
     hooks:
       - id: giticket  # Prepend the commit message with the JIRA ticket
         args: [ '--regex=(?:(?:feature|bugfix|support|hotfix)/)?(OND[0-9]{3}-[0-9]{1,5})[_-][\w-]+',
