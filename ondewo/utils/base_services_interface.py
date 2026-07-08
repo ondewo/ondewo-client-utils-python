@@ -18,6 +18,7 @@ options (maximum message sizes, keepalive settings and the retry policy), and th
 :class:`BaseServicesInterface` abstract base class from which every synchronous ONDEWO
 gRPC service client derives.
 """
+
 import json
 import struct
 from abc import (

@@ -1,9 +1,0 @@
-dataclasses-json
-
-# google-api-core>=2.19.1
-googleapis-common-protos>=1.63.2
-grpcio>=1.65.5
-grpcio-reflection>=1.65.5
-grpcio-tools>=1.65.5
-regex
-# mypy-protobuf==3.2.0

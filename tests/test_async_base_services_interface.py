@@ -75,7 +75,7 @@ def test_max_message_length_is_int32_max() -> None:
         None:
             This test returns nothing; it asserts on the constant value.
     """
-    assert MAX_MESSAGE_LENGTH == 2 ** 31 - 1
+    assert MAX_MESSAGE_LENGTH == 2**31 - 1
 
 
 def test_keepalive_enabled_only_during_active_calls() -> None:
@@ -134,9 +134,10 @@ def test_get_secure_channel_builds_credentials() -> None:
         None:
             This test returns nothing; it asserts on the mocked gRPC calls.
     """
-    with mock.patch.object(absi.grpc, "ssl_channel_credentials") as creds, mock.patch.object(
-        absi.grpc.aio, "secure_channel"
-    ) as secure_channel:
+    with (
+        mock.patch.object(absi.grpc, "ssl_channel_credentials") as creds,
+        mock.patch.object(absi.grpc.aio, "secure_channel") as secure_channel,
+    ):
         channel = get_secure_channel(host="localhost:50051", cert="cert-bytes", options=[])
     # a str cert is normalized to bytes before being handed to gRPC
     creds.assert_called_once_with(root_certificates=b"cert-bytes")
@@ -152,9 +153,10 @@ def test_secure_channel_via_init() -> None:
         None:
             This test returns nothing; it asserts the channel is the secure one.
     """
-    with mock.patch.object(absi.grpc, "ssl_channel_credentials"), mock.patch.object(
-        absi.grpc.aio, "secure_channel"
-    ) as secure_channel:
+    with (
+        mock.patch.object(absi.grpc, "ssl_channel_credentials"),
+        mock.patch.object(absi.grpc.aio, "secure_channel") as secure_channel,
+    ):
         service: _ConcreteAsyncService = _ConcreteAsyncService(config=_config(cert="my-cert"), use_secure_channel=True)
     assert service.grpc_channel is secure_channel.return_value
 

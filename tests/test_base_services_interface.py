@@ -76,7 +76,7 @@ def _config(cert: Any = None) -> BaseClientConfig:
 
 def test_max_message_length_is_int32_max() -> None:
     """Verify ``MAX_MESSAGE_LENGTH`` equals the signed 32-bit integer maximum."""
-    assert MAX_MESSAGE_LENGTH == 2 ** 31 - 1
+    assert MAX_MESSAGE_LENGTH == 2**31 - 1
 
 
 def test_keepalive_enabled_only_during_active_calls() -> None:
@@ -116,9 +116,10 @@ def test_default_options_are_shared_and_not_reserialized() -> None:
 
 def test_get_secure_channel_builds_credentials() -> None:
     """Verify ``get_secure_channel`` builds SSL credentials and a secure channel."""
-    with mock.patch.object(bsi.grpc, "ssl_channel_credentials") as creds, mock.patch.object(
-        bsi.grpc, "secure_channel"
-    ) as secure_channel:
+    with (
+        mock.patch.object(bsi.grpc, "ssl_channel_credentials") as creds,
+        mock.patch.object(bsi.grpc, "secure_channel") as secure_channel,
+    ):
         channel: grpc.Channel = get_secure_channel(host="localhost:50051", cert="cert-bytes", options=[])
     # a str cert is normalized to bytes before being handed to gRPC
     creds.assert_called_once_with(root_certificates=b"cert-bytes")
@@ -128,9 +129,10 @@ def test_get_secure_channel_builds_credentials() -> None:
 
 def test_secure_channel_via_init() -> None:
     """Verify :class:`BaseServicesInterface` builds a secure channel from a certificate."""
-    with mock.patch.object(bsi.grpc, "ssl_channel_credentials"), mock.patch.object(
-        bsi.grpc, "secure_channel"
-    ) as secure_channel:
+    with (
+        mock.patch.object(bsi.grpc, "ssl_channel_credentials"),
+        mock.patch.object(bsi.grpc, "secure_channel") as secure_channel,
+    ):
         service: _ConcreteService = _ConcreteService(config=_config(cert="my-cert"), use_secure_channel=True)
     assert service.grpc_channel is secure_channel.return_value
 

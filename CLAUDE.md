@@ -168,7 +168,7 @@ Raises:
 - **Never prepend the JIRA ticket ID** (e.g. `[OND211-2418]`) to the commit subject yourself. The `giticket` pre-commit
   hook reads the ticket from the branch name and prepends `[<ticket>]` automatically. This repo's regex is
   `(?:(?:feature|bugfix|support|hotfix)/)?(OND[0-9]{3}-[0-9]{1,5})[_-][\w-]+`, so the `feature/` … prefix is optional —
-  a branch such as `OND211-2418-add-keycloak-for-2-fa` is matched directly and yields `[OND211-2418] `. Writing the
+  a branch such as `OND211-2418-add-keycloak-for-2-fa` is matched directly and yields `[OND211-2418]`. Writing the
   prefix manually produces a duplicate like `[OND211-2418] [OND211-2418] …`. Write the subject as a plain message and
   let the hook add the prefix on commit.
 
@@ -193,7 +193,7 @@ This repo was migrated off `setup.py` / `.flake8` / `mypy.ini` to a single **pyp
 - **Build backend stays setuptools** (for PyPI compatibility). Build with `python -m build --no-isolation` or `uv build` — NOT `python setup.py sdist bdist_wheel` (setup.py is deleted). `Dockerfile.utils` installs `twine setuptools wheel build`.
 - **Dependencies via uv + a committed `uv.lock`.** CI runs `uv sync --extra dev --frozen`. To add/change a dep: edit `[project.dependencies]`/`[project.optional-dependencies].dev` in pyproject.toml then `uv lock`.
 - **Lint is ruff** (`[tool.ruff]`, line-length 120, generated `*_pb2*` excluded) — `uv run ruff check .`. flake8 is gone.
-- **mypy config lives in `[tool.mypy]`.** Do **NOT** re-create `mypy.ini` — it silently *shadows* the pyproject config. Generated `*_pb2*` modules get `ignore_errors` overrides.
+- **mypy config lives in `[tool.mypy]`.** Do **NOT** re-create `mypy.ini` — it silently _shadows_ the pyproject config. Generated `*_pb2*` modules get `ignore_errors` overrides.
 - **Do NOT re-add `setup.py`** — with setuptools>=61 it conflicts with `[project]` on duplicated metadata.
 - **PEP 625**: the sdist is now underscore-normalised (`ondewo_<name>-<v>.tar.gz`); anything that greps the tarball name by hand must use underscores.
 - The version-bump release target edits the version in **pyproject.toml** (not setup.py); the release stages `pyproject.toml uv.lock`.

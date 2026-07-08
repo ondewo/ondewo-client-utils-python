@@ -11,12 +11,15 @@ This library contains base classes and utilities for higher-level interface clie
 
 Python Installation
 -------------------
+
 You can install the library by installing it directly from the pypi:
+
 ```bash
 pip install ondewo-client-utils
 ```
 
 Or, you could clone it and install the requirements:
+
 ```bash
 git clone git@github.com:ondewo/ondewo-client-utils-python.git
 cd ondewo-client-utils-python

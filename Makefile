@@ -5,24 +5,10 @@
 #   - Section banners (`####...`) are listed by `make makefile_chapters`.
 #
 # Common developer targets:
-#   make run_tests                            Build the pytest docker image and run the test suite
-#   make run_code_checks                      Run flake8 + mypy inside the code-checks docker image
-#   make flake8 / make mypy                   Run the linters directly in the current environment
-#   make setup_developer_environment_locally  Install pre-commit hooks and local dependencies
-#   make release                              Run the full automated release (branch, tag, GitHub, PyPI)
-
-PACKAGE_FOLDER := ondewo-client-utils
-TESTFILE := ondewo
-CODE_CHECK_IMAGE := code_check_image_${TESTFILE}
-
-run_code_checks: ## Start the code checks image and run the checks
-	docker build -t ${CODE_CHECK_IMAGE} --build-arg FOLDER_NAME=${TESTFILE} -f dockerfiles/code_checks.Dockerfile .
-	docker run --rm ${CODE_CHECK_IMAGE} make flake8
-	docker run --rm -e FOLDER_NAME=${TESTFILE} ${CODE_CHECK_IMAGE} make mypy
-
-run_tests: ## Start a server then a little docker image to run the e2e tests in
-	docker build -t pytest_image --build-arg TESTFILE=${TESTFILE} -f dockerfiles/pytest.Dockerfile .
-	docker run --rm --network host -e RESULTS=x -e TESTFILE=${TESTFILE} pytest_image
+#   make setup_developer_environment_locally  Install uv, sync deps into .venv, install pre-commit hooks
+#   make ruff / make mypy                      Run the linters via the uv-managed environment
+#   make test                                  Run the unit tests + 100% coverage gate
+#   make release                               Run the full automated release (branch, tag, GitHub, PyPI)
 
 export
 
@@ -40,7 +26,7 @@ export
 
 # MUST BE THE SAME AS API in Mayor and Minor Version Number
 # example: API 2.9.0 --> Client 2.9.X
-ONDEWO_PACKAGE_VERSION=$(shell sed -nE "s/^__version__[^=]*= *'([^']+)'.*/\1/p" ondewo/version.py)
+ONDEWO_PACKAGE_VERSION=$(shell sed -nE 's/^__version__[^=]*= *"([^"]+)".*/\1/p' ondewo/version.py)
 
 
 PYPI_USERNAME?=ENTER_HERE_YOUR_PYPI_USERNAME
@@ -56,12 +42,11 @@ CURRENT_RELEASE_NOTES=`cat RELEASE.md \
 # Choose repo to release to - Example: "https://github.com/ondewo/ondewo-nlu-client-python"
 GH_REPO="https://github.com/ondewo/ondewo-client-utils-python"
 
-# Submodule paths
-
-# Specify protos directories
-
 # Utils release docker image environment variables
 IMAGE_UTILS_NAME=ondewo-client-utils-python:${ONDEWO_PACKAGE_VERSION}
+
+DEVOPS_ACCOUNT_GIT="ondewo-devops-accounts"
+DEVOPS_ACCOUNT_DIR="./${DEVOPS_ACCOUNT_GIT}"
 
 .DEFAULT_GOAL := help
 
@@ -69,28 +54,35 @@ IMAGE_UTILS_NAME=ondewo-client-utils-python:${ONDEWO_PACKAGE_VERSION}
 #       ONDEWO Standard Make Targets
 ########################################################
 
-setup_developer_environment_locally: install_precommit_hooks install_dependencies_locally ## Set up the local dev environment (pre-commit hooks + dependencies)
+setup_developer_environment_locally: install_uv install_dependencies_locally install_precommit_hooks ## Ready a fresh laptop: install uv, sync runtime+dev deps into .venv, install pre-commit hooks
 
-install_precommit_hooks: ## Installs pre-commit hooks and sets them up for the ondewo-csi-client repo
-	conda install -y pre-commit
-	pre-commit install
-	pre-commit install --hook-type commit-msg
+install_uv: ## Install the uv package manager if it is not already available
+	@command -v uv >/dev/null 2>&1 || curl -LsSf https://astral.sh/uv/install.sh | sh
+
+install_precommit_hooks: ## Installs pre-commit hooks and sets them up for the ondewo-client-utils-python repo
+	uv run pre-commit install
+	uv run pre-commit install --hook-type commit-msg
 
 precommit_hooks_run_all_files: ## Runs all pre-commit hooks on all files and not just the changed ones
-	pre-commit run --all-file
+	uv run pre-commit run --all-files
 
-install_dependencies_locally: ## Install dependencies locally
-	pip install -r requirements-dev.txt
-	pip install -r requirements.txt
+install_dependencies_locally: ## Install runtime + dev dependencies locally into the uv-managed .venv
+	uv sync --extra dev
 
-flake8: ## Runs flake8
-	flake8 .
+ruff: ## Lint with ruff (replaces flake8)
+	uv run ruff check .
+
+ruff_fix: ## Lint with ruff and auto-fix fixable issues
+	uv run ruff check --fix .
+
+ruff_format: ## Format the codebase with ruff (replaces autopep8)
+	uv run ruff format .
 
 mypy: ## Run mypy static code checking
-	pre-commit run mypy --all-files
+	uv run mypy ondewo tests
 
 cythonize: ## Compile the pure-Python ondewo modules into native extensions (skips dataclasses)
-	python cython_compile.py build_ext --inplace
+	uv run python cython_compile.py build_ext --inplace
 
 help: ## Print usage info about help targets
 	# (first comment after target starting with double hashes ##)
@@ -98,6 +90,17 @@ help: ## Print usage info about help targets
 
 makefile_chapters: ## Shows all sections of Makefile
 	@echo `cat Makefile| grep "########################################################" -A 1 | grep -v "########################################################"`
+
+########################################################
+#       Test
+########################################################
+
+test: ## Run the unit tests + 100% coverage gate (config in pytest.ini / .coveragerc)
+	uv run pytest
+
+########################################################
+#       Release
+########################################################
 
 # BEFORE "release"
 # update_setup: ## Update version in setup.py
@@ -125,8 +128,7 @@ build_gh_release: ## Generate Github Release with CLI
 	gh release create --repo $(GH_REPO) "$(ONDEWO_PACKAGE_VERSION)" -n "$(CURRENT_RELEASE_NOTES)" -t "Release ${ONDEWO_PACKAGE_VERSION}"
 
 install:  ## Install requirements
-	pip install .
-	pip install -r requirements.txt
+	uv sync
 
 build_utils_docker_image:  ## Build utils docker image
 	docker build -f Dockerfile.utils -t ${IMAGE_UTILS_NAME} .
@@ -166,7 +168,7 @@ release_to_github_via_docker_image:  ## Release to Github via docker
 		${IMAGE_UTILS_NAME} make push_to_gh
 
 build_package: ## Build the sdist and wheel into dist/
-	python -m build --no-isolation
+	uv build
 	chmod a+rw dist -R
 
 upload_package: ## Upload the built dist/* artifacts to PyPI with twine
@@ -182,9 +184,6 @@ clone_devops_accounts: ## Clones devops-accounts repo
 	if [ -d $(DEVOPS_ACCOUNT_GIT) ]; then rm -Rf $(DEVOPS_ACCOUNT_GIT); fi
 	git clone git@bitbucket.org:ondewo/${DEVOPS_ACCOUNT_GIT}.git
 
-DEVOPS_ACCOUNT_GIT="ondewo-devops-accounts"
-DEVOPS_ACCOUNT_DIR="./${DEVOPS_ACCOUNT_GIT}"
-
 TEST: ## Debug: echo the resolved GitHub/PyPI credentials and current release notes
 	@echo ${GITHUB_GH_TOKEN}
 	@echo ${PYPI_USERNAME}
@@ -198,7 +197,6 @@ run_release_with_devops: ## Load credentials from the devops-accounts repo and r
 spc: ## Checks if the Release Branch, Tag and Pypi version already exist
 	$(eval filtered_branches:= $(shell git branch --all | grep "release/${ONDEWO_PACKAGE_VERSION}"))
 	$(eval filtered_tags:= $(shell git tag --list | grep "${ONDEWO_PACKAGE_VERSION}"))
-	$(eval setuppy_version:= $(shell cat pyproject.toml | grep "version"))
+	$(eval pyproject_version:= $(shell cat pyproject.toml | grep "version"))
 	@if test "$(filtered_branches)" != ""; then echo "-- Test 1: Branch exists!!" & exit 1; else echo "-- Test 1: Branch is fine";fi
 	@if test "$(filtered_tags)" != ""; then echo "-- Test 2: Tag exists!!" & exit 1; else echo "-- Test 2: Tag is fine";fi
-	# @if test "$(setuppy_version)" != "version='${ONDEWO_PACKAGE_VERSION}',"; then echo "-- Test 3: Setup.py not updated!!" & exit 1; else echo "-- Test 3: Setup.py is fine";fi
