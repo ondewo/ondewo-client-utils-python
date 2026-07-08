@@ -185,3 +185,15 @@ Raises:
 
 - Downstream release images build on `python:3.12-slim`, which has **no `setuptools`** — anything running `python setup.py …` must `pip install setuptools wheel` first.
 - gRPC keepalive is enabled here (`keepalive_time_ms=30000`, `keepalive_permit_without_calls=False` so pings fire only during active calls → no server `too_many_pings` GOAWAY on idle channels; `max_pings_without_data=0` lets pings continue through silent stretches of a long stream). Do not "re-disable" it back to `2**31-1`.
+
+## Python tooling — uv + ruff + mypy + pyproject.toml (this session's refactor)
+
+This repo was migrated off `setup.py` / `.flake8` / `mypy.ini` to a single **pyproject.toml** with **uv**, **ruff**, and **mypy**. Going forward:
+
+- **Build backend stays setuptools** (for PyPI compatibility). Build with `python -m build --no-isolation` or `uv build` — NOT `python setup.py sdist bdist_wheel` (setup.py is deleted). `Dockerfile.utils` installs `twine setuptools wheel build`.
+- **Dependencies via uv + a committed `uv.lock`.** CI runs `uv sync --extra dev --frozen`. To add/change a dep: edit `[project.dependencies]`/`[project.optional-dependencies].dev` in pyproject.toml then `uv lock`.
+- **Lint is ruff** (`[tool.ruff]`, line-length 120, generated `*_pb2*` excluded) — `uv run ruff check .`. flake8 is gone.
+- **mypy config lives in `[tool.mypy]`.** Do **NOT** re-create `mypy.ini` — it silently *shadows* the pyproject config. Generated `*_pb2*` modules get `ignore_errors` overrides.
+- **Do NOT re-add `setup.py`** — with setuptools>=61 it conflicts with `[project]` on duplicated metadata.
+- **PEP 625**: the sdist is now underscore-normalised (`ondewo_<name>-<v>.tar.gz`); anything that greps the tarball name by hand must use underscores.
+- The version-bump release target edits the version in **pyproject.toml** (not setup.py); the release stages `pyproject.toml uv.lock`.
