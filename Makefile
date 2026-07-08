@@ -193,7 +193,7 @@ TEST: ## Debug: echo the resolved GitHub/PyPI credentials and current release no
 
 run_release_with_devops: ## Load credentials from the devops-accounts repo and run the full release
 	$(eval info:= $(shell cat ${DEVOPS_ACCOUNT_DIR}/account_github.env | grep GITHUB_GH & cat ${DEVOPS_ACCOUNT_DIR}/account_pypi.env | grep PYPI_USERNAME & cat ${DEVOPS_ACCOUNT_DIR}/account_pypi.env | grep PYPI_PASSWORD))
-	make release $(info)
+	@make release $(info)
 
 spc: ## Checks if the Release Branch, Tag and Pypi version already exist
 	$(eval filtered_branches:= $(shell git branch --all | grep "release/${ONDEWO_PACKAGE_VERSION}"))
