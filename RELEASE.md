@@ -2,6 +2,24 @@
 
 *****************
 
+## Release ONDEWO CLIENT UTILS PYTHON 3.3.0
+
+### Improvements
+
+* Removed the `dataclasses-json` dependency, and with it the transitive `marshmallow` dependency, from every
+  ONDEWO client package. `BaseClientConfig` now implements `to_dict` / `from_dict` / `to_json` / `from_json`
+  directly.
+* Fixed `from_json(to_json(config))` silently corrupting `grpc_cert`: the certificate is stored as `bytes`, and
+  `dataclasses-json` serialized it as a list of integers, so the round trip yielded `b"[109, 121, ...]"`.
+
+### Breaking changes
+
+* `BaseClientConfig.schema()` was removed. It returned a `marshmallow.Schema` and cannot exist without
+  `marshmallow`. No ONDEWO client used it.
+* `from_dict` / `from_json` now raise `TypeError` rather than `KeyError` when a mandatory field is missing.
+
+*****************
+
 ## Release ONDEWO CLIENT UTILS PYTHON 3.2.0
 
 ### New Features

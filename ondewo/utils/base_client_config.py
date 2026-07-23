@@ -14,17 +14,45 @@
 
 """Data class holding the host, port and gRPC certificate configuration for ONDEWO gRPC clients."""
 
-from dataclasses import dataclass
-from typing import Optional
+import json
+from dataclasses import (
+    dataclass,
+    fields,
+)
+from typing import (
+    Any,
+    Dict,
+    Mapping,
+    Optional,
+    Type,
+    TypeVar,
+)
 
-from dataclasses_json import dataclass_json
+TBaseClientConfig = TypeVar("TBaseClientConfig", bound="BaseClientConfig")
 
 
-@dataclass_json
 @dataclass(frozen=True)
 class BaseClientConfig:
     """
     Configuration for the ONDEWO python client.
+
+    Serialization helpers (``to_dict`` / ``from_dict`` / ``to_json`` / ``from_json``) are implemented here
+    directly rather than being injected by ``dataclasses_json``. Dropping that decorator removes the
+    ``dataclasses-json`` -> ``marshmallow`` dependency chain from every ONDEWO client package, which is the
+    whole point: the schema machinery it pulled in was never used, only the four helpers below were.
+
+    Compared with the previous ``dataclasses_json`` behaviour:
+
+    * ``to_dict`` / ``to_json`` / ``from_dict`` / ``from_json`` keep their signatures and their semantics —
+      unknown keys are ignored on read, and a missing mandatory field still raises. The one difference is the
+      exception type: a missing mandatory field now raises ``TypeError`` (the natural error for an absent
+      constructor argument) where ``dataclasses_json`` raised ``KeyError``.
+    * ``schema()`` is **gone**. It returned a ``marshmallow.Schema`` and cannot exist without marshmallow.
+      No ONDEWO client used it.
+    * ``to_json`` no longer corrupts ``grpc_cert``. ``__post_init__`` encodes the certificate to ``bytes``,
+      and ``dataclasses_json`` serialized those bytes as a list of integers, so a
+      ``from_json(to_json(config))`` round trip silently produced ``b"[109, 121, ...]"`` instead of the
+      certificate. Bytes are now decoded back to ``str``, so the round trip is lossless.
 
     Attributes:
         host (str):
@@ -64,3 +92,80 @@ class BaseClientConfig:
                 The host and port in the format ``"host:port"``.
         """
         return f"{self.host}:{self.port}"
+
+    def to_dict(self) -> Dict[str, Any]:
+        """
+        Return the configuration as a plain, JSON-serializable dictionary.
+
+        ``grpc_cert`` is decoded back to ``str``, because ``__post_init__`` stores it as ``bytes`` and
+        ``bytes`` is not JSON-serializable.
+
+        Returns:
+            Dict[str, Any]:
+                One entry per dataclass field, in declaration order.
+        """
+        result: Dict[str, Any] = {}
+        for config_field in fields(self):
+            value: Any = getattr(self, config_field.name)
+            result[config_field.name] = value.decode() if isinstance(value, bytes) else value
+        return result
+
+    def to_json(self, **kwargs: Any) -> str:
+        """
+        Serialize the configuration to a JSON string.
+
+        Args:
+            **kwargs (Any):
+                Additional keyword arguments forwarded to :func:`json.dumps` (e.g. ``indent``).
+
+        Returns:
+            str:
+                The JSON representation of :meth:`to_dict`.
+        """
+        return json.dumps(self.to_dict(), **kwargs)
+
+    @classmethod
+    def from_dict(cls: Type[TBaseClientConfig], kvs: Mapping[str, Any]) -> TBaseClientConfig:
+        """
+        Build a configuration from a mapping, ignoring keys that are not fields of this class.
+
+        Unknown keys are dropped rather than rejected, so a configuration file written for a newer client
+        version still loads on an older one.
+
+        Args:
+            kvs (Mapping[str, Any]):
+                The field values. Keys that do not name a field of ``cls`` are ignored.
+
+        Returns:
+            TBaseClientConfig:
+                A new instance of ``cls``.
+
+        Raises:
+            TypeError:
+                If a mandatory field is absent from ``kvs``.
+        """
+        field_names = {config_field.name for config_field in fields(cls)}
+        return cls(**{key: value for key, value in kvs.items() if key in field_names})
+
+    @classmethod
+    def from_json(cls: Type[TBaseClientConfig], s: str, **kwargs: Any) -> TBaseClientConfig:
+        """
+        Build a configuration from a JSON string.
+
+        Args:
+            s (str):
+                The JSON document, which must decode to an object.
+            **kwargs (Any):
+                Additional keyword arguments forwarded to :func:`json.loads`.
+
+        Returns:
+            TBaseClientConfig:
+                A new instance of ``cls``.
+
+        Raises:
+            TypeError:
+                If a mandatory field is absent from the decoded object.
+            json.JSONDecodeError:
+                If ``s`` is not valid JSON.
+        """
+        return cls.from_dict(json.loads(s, **kwargs))

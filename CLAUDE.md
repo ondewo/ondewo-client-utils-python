@@ -16,7 +16,10 @@ Public building blocks (all under `ondewo/utils/`):
 - `base_services_interface.py` — `BaseServicesInterface` plus channel helpers (`get_secure_channel`,
   `_get_grpc_channel`, `MAX_MESSAGE_LENGTH`) and the constant gRPC channel options.
 - `async_base_services_interface.py` — `AsyncBaseServicesInterface`, the `grpc.aio` counterpart.
-- `base_client_config.py` — `BaseClientConfig`, a frozen `dataclass_json` config (`host`, `port`, `grpc_cert`).
+- `base_client_config.py` — `BaseClientConfig`, a frozen dataclass config (`host`, `port`, `grpc_cert`) with
+  hand-rolled `to_dict` / `from_dict` / `to_json` / `from_json` helpers. It deliberately does **not** use
+  `dataclasses_json`: that decorator pulled `marshmallow` into every ONDEWO client package purely to provide a
+  `schema()` method nobody called. Do not reintroduce it.
 - `base_service_container.py` — `BaseServicesContainer`, the dataclass that concrete clients subclass to enumerate
   their services.
 - `helpers.py` — `get_struct_from_dict`, `get_attr_recursive`, `set_attr_recursive`.

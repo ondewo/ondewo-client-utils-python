@@ -14,6 +14,10 @@
 
 """Unit tests for :class:`ondewo.utils.base_client_config.BaseClientConfig`."""
 
+import json
+
+import pytest
+
 from ondewo.utils.base_client_config import BaseClientConfig
 
 
@@ -22,7 +26,8 @@ class TestBaseClientConfig:
     Test suite verifying the behaviour of :class:`BaseClientConfig`.
 
     The tests cover host/port composition, gRPC certificate encoding, dataclass
-    immutability (``frozen=True``) and the ``dataclass_json`` serialization helpers.
+    immutability (``frozen=True``) and the hand-rolled serialization helpers that replaced
+    ``dataclasses_json``.
     """
 
     def test_host_and_port(self) -> None:
@@ -75,13 +80,73 @@ class TestBaseClientConfig:
         else:  # pragma: no cover
             raise AssertionError("expected the config to be frozen")
 
-    def test_dataclass_json_roundtrip(self) -> None:
-        """Verify that ``dataclass_json`` exposes a working ``to_dict`` helper.
+    def test_to_dict_returns_every_field(self) -> None:
+        """Verify that ``to_dict`` emits one entry per dataclass field.
 
         Returns:
             None:
-                This test returns nothing; it asserts on the serialized ``host`` field.
+                This test returns nothing; it asserts on the serialized mapping.
         """
         config: BaseClientConfig = BaseClientConfig(host="localhost", port="50051")
-        # dataclass_json adds to_json / from_dict helpers
-        assert config.to_dict()["host"] == "localhost"  # type: ignore[attr-defined]
+        assert config.to_dict() == {"host": "localhost", "port": "50051", "grpc_cert": None}
+
+    def test_to_dict_decodes_the_certificate_back_to_str(self) -> None:
+        """Verify that the ``bytes`` certificate is decoded so the mapping stays JSON-serializable.
+
+        Returns:
+            None:
+                This test returns nothing; it asserts on the decoded certificate.
+        """
+        config: BaseClientConfig = BaseClientConfig(host="localhost", port="50051", grpc_cert="my-cert")
+        assert config.to_dict()["grpc_cert"] == "my-cert"
+
+    def test_to_json_serializes_the_mapping(self) -> None:
+        """Verify that ``to_json`` produces the JSON form of ``to_dict`` and forwards kwargs.
+
+        Returns:
+            None:
+                This test returns nothing; it asserts on the JSON document.
+        """
+        config: BaseClientConfig = BaseClientConfig(host="localhost", port="50051")
+        assert json.loads(config.to_json()) == config.to_dict()
+        assert "\n" in config.to_json(indent=2)
+
+    def test_from_dict_ignores_unknown_keys(self) -> None:
+        """Verify that a mapping carrying unknown keys still loads.
+
+        This keeps a configuration written for a newer client version readable by an older one.
+
+        Returns:
+            None:
+                This test returns nothing; it asserts on the resulting configuration.
+        """
+        config: BaseClientConfig = BaseClientConfig.from_dict(
+            {"host": "localhost", "port": "50051", "field_from_a_newer_version": 1},
+        )
+        assert config.host == "localhost"
+        assert config.port == "50051"
+
+    def test_from_dict_raises_when_a_mandatory_field_is_missing(self) -> None:
+        """Verify that omitting a mandatory field is rejected rather than silently defaulted.
+
+        Returns:
+            None:
+                This test returns nothing; it asserts that ``TypeError`` is raised.
+        """
+        with pytest.raises(TypeError):
+            BaseClientConfig.from_dict({"port": "50051"})
+
+    def test_from_json_round_trips_including_the_certificate(self) -> None:
+        """Verify that ``from_json(to_json(config))`` reproduces the original configuration.
+
+        This is a regression test: ``dataclasses_json`` serialized the ``bytes`` certificate as a list of
+        integers, so the round trip used to yield ``b"[109, 121, ...]"`` instead of the certificate.
+
+        Returns:
+            None:
+                This test returns nothing; it asserts on the round-tripped configuration.
+        """
+        config: BaseClientConfig = BaseClientConfig(host="localhost", port="50051", grpc_cert="my-cert")
+        restored: BaseClientConfig = BaseClientConfig.from_json(config.to_json())
+        assert restored == config
+        assert restored.grpc_cert == b"my-cert"
