@@ -61,15 +61,21 @@ _SERVICE_CONFIG_JSON: str = build_service_config_json([])
 _DEFAULT_GRPC_OPTIONS: Dict[str, Any] = {
     "grpc.max_send_message_length": MAX_MESSAGE_LENGTH,
     "grpc.max_receive_message_length": MAX_MESSAGE_LENGTH,
-    # Keepalive keeps long-lived streaming RPCs warm and detects half-open
-    # connections. Pings fire only during active calls (permit_without_calls
-    # stays False) to avoid a server "too_many_pings" GOAWAY on idle channels;
-    # max_pings_without_data=0 lets pings continue through silent stream gaps.
+    # Keepalive keeps long-lived streaming RPCs warm and detects half-open connections while
+    # data flows. Pings fire only during active calls (permit_without_calls stays False), and
+    # stop after 2 pings without data (gRPC's default): a default grpc-core server
+    # (min_recv_ping_interval_without_data 5 min, max_ping_strikes 2) answers a client that
+    # keeps pinging a silent stream with GOAWAY ENHANCE_YOUR_CALM "too_many_pings", which
+    # tears down the shared connection (measured: UNAVAILABLE after ~50 s at a 10 s keepalive
+    # with 0 = unlimited; the same silent stream completed with 2).
     "grpc.keepalive_time_ms": 30000,
     "grpc.keepalive_timeout_ms": 60000,
     "grpc.keepalive_permit_without_calls": False,
-    "grpc.http2.max_pings_without_data": 0,
-    "grpc.dns_enable_srv_queries": 1,
+    "grpc.http2.max_pings_without_data": 2,
+    # "grpc.dns_enable_srv_queries" is deliberately NOT set: it only discovers deprecated grpclb
+    # balancers, which no ONDEWO deployment uses, and cost ~14 ms per channel (median channel
+    # creation + first unary call to 127.0.0.1: 15.9 ms with it, 1.4 ms without). A caller
+    # that runs grpclb can still pass it in ``options``.
     "grpc.enable_retries": 1,
     "grpc.service_config": _SERVICE_CONFIG_JSON,
 }

@@ -90,7 +90,10 @@ def test_keepalive_enabled_only_during_active_calls() -> None:
     options: Dict[str, Any] = bsi._DEFAULT_GRPC_OPTIONS
     assert options["grpc.keepalive_time_ms"] == 30000
     assert options["grpc.keepalive_permit_without_calls"] is False
-    assert options["grpc.http2.max_pings_without_data"] == 0
+    # 2 (gRPC's default), never 0 = unlimited: a default grpc-core server GOAWAYs a client that
+    # keeps pinging a silent stream ("too_many_pings", measured after ~50 s at a 10 s keepalive),
+    # tearing down the shared connection and every non-retried RPC on it.
+    assert options["grpc.http2.max_pings_without_data"] == 2
 
 
 def test_insecure_channel_without_options() -> None:
@@ -192,3 +195,8 @@ def test_missing_cert_error_never_renders_the_config() -> None:
     assert "hunter2" not in repr(error.value)
     assert "h:1" in str(error.value)
     assert "_ConfigWithPassword" in str(error.value)
+
+
+def test_srv_queries_are_not_enabled_by_default() -> None:
+    """Verify the grpclb-only SRV lookup is off (15.9 ms vs 1.4 ms per channel to 127.0.0.1)."""
+    assert "grpc.dns_enable_srv_queries" not in bsi._DEFAULT_GRPC_OPTIONS
