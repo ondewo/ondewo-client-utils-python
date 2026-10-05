@@ -31,9 +31,27 @@ SECRET_NAMES: str = r"(?:PYPI_PASSWORD|GITHUB_GH_TOKEN)"
 
 def test_no_recipe_echoes_a_secret() -> None:
     """Verify no recipe line prints the PyPI password or the GitHub token to the console."""
-    # Piping into another program's stdin (login_to_gh: `echo $(GITHUB_GH_TOKEN) | gh auth login
-    # --with-token`) prints nothing and puts nothing on an argv (echo is a shell builtin).
     assert re.search(rf"echo\s+\$[{{(]{SECRET_NAMES}[}})](?![ \t]*\|)", MAKEFILE) is None
+
+
+def test_make_never_expands_a_secret_into_a_recipe_line() -> None:
+    """
+    Verify no recipe line carries ``$(PYPI_PASSWORD)`` / ``$(GITHUB_GH_TOKEN)``.
+
+    make expands ``$(NAME)`` BEFORE the shell runs, so the value lands on the argv of ``/bin/sh -c``
+    even when it is only piped into another program (``login_to_gh`` did exactly that). A recipe reads
+    a secret as ``$${NAME}``, which the shell expands from the exported environment.
+    """
+    recipe_lines: List[str] = [line for line in MAKEFILE.splitlines() if line.startswith("\t")]
+    assert [line for line in recipe_lines if re.search(rf"(?<!\$)\$[{{(]{SECRET_NAMES}[}})]", line)] == []
+
+
+def test_the_devops_release_hands_the_credentials_over_the_environment() -> None:
+    """Verify ``run_release_with_devops`` does not start ``make release NAME=<value>`` (make's argv)."""
+    recipe: str = MAKEFILE.split("run_release_with_devops:", 1)[1].split("\n\n", 1)[0]
+    assert "$(info)" not in recipe
+    assert "set -a" in recipe
+    assert re.search(r"\$\(MAKE\) release\s*$", recipe) is not None
 
 
 def test_twine_never_gets_the_password_on_its_argv() -> None:

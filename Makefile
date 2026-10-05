@@ -127,8 +127,10 @@ build_and_push_to_pypi_via_docker: push_to_pypi_via_docker_image  ## Release aut
 
 build_and_release_to_github_via_docker: build_utils_docker_image release_to_github_via_docker_image  ## Release automation for building and releasing on GitHub via a docker image
 
+# "$${GITHUB_GH_TOKEN}" is expanded by the shell from the environment. $(GITHUB_GH_TOKEN) would be
+# expanded by make INTO the recipe line, i.e. onto the argv of `/bin/sh -c`.
 login_to_gh: ## Login to Github CLI with Access Token
-	@echo $(GITHUB_GH_TOKEN) | gh auth login -p ssh --with-token
+	@printf '%s\n' "$${GITHUB_GH_TOKEN}" | gh auth login -p ssh --with-token
 
 build_gh_release: ## Generate Github Release with CLI
 	gh release create --repo $(GH_REPO) "$(ONDEWO_PACKAGE_VERSION)" -n "$(CURRENT_RELEASE_NOTES)" -t "Release ${ONDEWO_PACKAGE_VERSION}"
@@ -193,9 +195,14 @@ clone_devops_accounts: ## Clones devops-accounts repo
 	if [ -d $(DEVOPS_ACCOUNT_GIT) ]; then rm -Rf $(DEVOPS_ACCOUNT_GIT); fi
 	git clone git@bitbucket.org:ondewo/${DEVOPS_ACCOUNT_GIT}.git
 
+# The credentials are exported into the sub-make's ENVIRONMENT. `make release NAME=<value>` would put
+# every value on make's argv, which /proc/<pid>/cmdline shows to every user on the host.
 run_release_with_devops: ## Load credentials from the devops-accounts repo and run the full release
-	$(eval info:= $(shell cat ${DEVOPS_ACCOUNT_DIR}/account_github.env | grep GITHUB_GH & cat ${DEVOPS_ACCOUNT_DIR}/account_pypi.env | grep PYPI_USERNAME & cat ${DEVOPS_ACCOUNT_DIR}/account_pypi.env | grep PYPI_PASSWORD))
-	@make release $(info)
+	@set -a \
+		&& eval "$$(grep -h -E '^(GITHUB_GH_TOKEN|PYPI_USERNAME|PYPI_PASSWORD)=' \
+			${DEVOPS_ACCOUNT_DIR}/account_github.env ${DEVOPS_ACCOUNT_DIR}/account_pypi.env)" \
+		&& set +a \
+		&& $(MAKE) release
 
 spc: ## Checks if the Release Branch, Tag and Pypi version already exist
 	$(eval filtered_branches:= $(shell git branch --all | grep "release/${ONDEWO_PACKAGE_VERSION}"))
