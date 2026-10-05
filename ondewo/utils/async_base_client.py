@@ -19,6 +19,7 @@ Provides the async counterpart of ``BaseClient`` with awaitable ``connect`` and
 ``disconnect`` methods that manage the lifecycle of the underlying gRPC channels.
 """
 
+import dataclasses
 from abc import (
     ABC,
     abstractmethod,
@@ -32,7 +33,6 @@ from typing import (
 
 from ondewo.utils.base_client_config import BaseClientConfig
 from ondewo.utils.base_service_container import BaseServicesContainer
-from ondewo.utils.async_base_services_interface import AsyncBaseServicesInterface
 
 
 class AsyncBaseClient(ABC):
@@ -126,20 +126,39 @@ class AsyncBaseClient(ABC):
 
     async def disconnect(self) -> None:
         """
-        Asynchronously close all gRPC channels and clear the services.
+        Asynchronously close every service's gRPC channel and clear the services.
 
-        Awaits the graceful shutdown of each service's gRPC channel before
-        discarding the services container.
+        Every field of the services dataclass is visited, inherited ones included, and a channel
+        shared by several services (see ``build_shared_channel``) is closed exactly once. A
+        ``close()`` that raises does not leave the remaining channels open: every channel is
+        attempted, ``services`` is cleared regardless, and the first error is re-raised.
 
         Raises:
             AttributeError:
                 If the ``services`` attribute is not defined.
+            Exception:
+                The first exception raised by a channel's ``close()``, after all channels were
+                attempted.
         """
         if not self.services:
             raise AttributeError("The attribute `services` is not defined.")
 
-        for service_name in self.services.__annotations__.keys():
-            service: AsyncBaseServicesInterface = self.services.__getattribute__(service_name)
-            await service.grpc_channel.close(grace=None)
-
-        self.services = None
+        first_error: Optional[BaseException] = None
+        closed: Set[int] = set()
+        try:
+            # dataclasses.fields() and not __annotations__: on Python 3.14 an instance has no
+            # __annotations__ (PEP 649), and on every version __annotations__ omits the fields a
+            # parent container declares, so their channels leaked.
+            for service_field in dataclasses.fields(self.services):
+                channel: Any = getattr(self.services, service_field.name).grpc_channel
+                if id(channel) in closed:
+                    continue
+                closed.add(id(channel))
+                try:
+                    await channel.close(grace=None)
+                except Exception as error:
+                    first_error = first_error or error
+        finally:
+            self.services = None
+        if first_error is not None:
+            raise first_error

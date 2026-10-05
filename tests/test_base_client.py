@@ -176,3 +176,115 @@ def test_connect_after_disconnect_reinitializes(config: BaseClientConfig) -> Non
     assert client.services is None
     client.connect(config=config, use_secure_channel=True)
     assert client.services is not None
+
+
+@dataclass
+class _ParentServices(BaseServicesContainer):
+    """
+    Services container declaring one service, to be extended by a child container.
+
+    Attributes:
+        parent_svc (Any):
+            A mock service declared on the parent dataclass.
+    """
+
+    parent_svc: Any = None
+
+
+@dataclass
+class _ChildServices(_ParentServices):
+    """
+    Services container inheriting ``parent_svc`` and declaring ``child_svc``.
+
+    Attributes:
+        child_svc (Any):
+            A mock service declared on the child dataclass.
+    """
+
+    child_svc: Any = None
+
+
+@dataclass
+class _TwoServices(BaseServicesContainer):
+    """
+    Services container with two fields, used for the failing-close and shared-channel cases.
+
+    Attributes:
+        first (Any):
+            The first mock service.
+        second (Any):
+            The second mock service.
+    """
+
+    first: Any = None
+    second: Any = None
+
+
+def _client_with(services: BaseServicesContainer, config: BaseClientConfig) -> _Client:
+    """
+    Build a connected client and swap in the given services container.
+
+    Args:
+        services (BaseServicesContainer):
+            The container the client should hold.
+        config (BaseClientConfig):
+            Configuration for the client.
+
+    Returns:
+        _Client:
+            A client whose ``services`` is ``services``.
+    """
+    client: _Client = _Client(config=config)
+    client.services = services
+    return client
+
+
+def test_disconnect_closes_inherited_service_channels(config: BaseClientConfig) -> None:
+    """Verify a service declared on a parent container is closed too (``__annotations__`` omits it)."""
+    parent: Any = _make_service()
+    child: Any = _make_service()
+    client: _Client = _client_with(_ChildServices(parent_svc=parent, child_svc=child), config)
+    client.disconnect()
+    parent.grpc_channel.close.assert_called_once_with()
+    child.grpc_channel.close.assert_called_once_with()
+    assert client.services is None
+
+
+def test_a_failing_close_still_closes_the_others_and_clears(config: BaseClientConfig) -> None:
+    """Verify one raising ``close()`` neither leaks the other channels nor leaves ``services`` set."""
+    first: Any = _make_service()
+    first.grpc_channel.close.side_effect = RuntimeError("close failed")
+    second: Any = _make_service()
+    client: _Client = _client_with(_TwoServices(first=first, second=second), config)
+    with pytest.raises(RuntimeError, match="close failed"):
+        client.disconnect()
+    second.grpc_channel.close.assert_called_once_with()
+    assert client.services is None
+
+
+def test_only_the_first_close_error_is_raised(config: BaseClientConfig) -> None:
+    """Verify that when several closes fail, the first error is the one re-raised."""
+    first: Any = _make_service()
+    first.grpc_channel.close.side_effect = RuntimeError("first")
+    second: Any = _make_service()
+    second.grpc_channel.close.side_effect = ValueError("second")
+    client: _Client = _client_with(_TwoServices(first=first, second=second), config)
+    with pytest.raises(RuntimeError, match="first"):
+        client.disconnect()
+    assert client.services is None
+
+
+def test_a_shared_channel_is_closed_once(config: BaseClientConfig) -> None:
+    """Verify a channel held by two services is closed exactly once."""
+    shared: Any = _make_service()
+    client: _Client = _client_with(_TwoServices(first=shared, second=shared), config)
+    client.disconnect()
+    shared.grpc_channel.close.assert_called_once_with()
+
+
+def test_services_are_cleared_when_a_service_has_no_channel(config: BaseClientConfig) -> None:
+    """Verify ``services`` is cleared even when reading a channel raises."""
+    client: _Client = _client_with(_TwoServices(first=_make_service(), second=None), config)
+    with pytest.raises(AttributeError, match="grpc_channel"):
+        client.disconnect()
+    assert client.services is None
