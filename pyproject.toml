@@ -27,11 +27,12 @@ classifiers = [
 ]
 # Verbatim from requirements.txt (commented-out deps intentionally omitted).
 dependencies = [
-    "dataclasses-json",
     "googleapis-common-protos>=1.63.2",
     "grpcio>=1.65.5",
     "grpcio-reflection>=1.65.5",
     "grpcio-tools>=1.65.5",
+    # BaseClientConfig.to_json / from_json. 3.11.1 is the first release with CPython 3.14 wheels.
+    "orjson>=3.11.1",
     # ondewo.utils imports google.protobuf (descriptor, descriptor_pb2, struct_pb2) directly, so it
     # is a direct dependency. The floor excludes PYSEC-2026-1805 (fixed in 5.29.6 / 6.33.5) and
     # PYSEC-2026-1806 (fixed in 5.29.5 / 6.31.1); PyPI jumps from 5.29.6 to 6.30.0, so the

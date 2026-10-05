@@ -16,9 +16,21 @@ Public building blocks (all under `ondewo/utils/`):
 - `base_services_interface.py` — `BaseServicesInterface` plus channel helpers (`get_secure_channel`,
   `_get_grpc_channel`, `build_shared_channel`, `MAX_MESSAGE_LENGTH`) and the constant gRPC channel options.
 - `async_base_services_interface.py` — `AsyncBaseServicesInterface`, the `grpc.aio` counterpart.
-- `base_client_config.py` — `BaseClientConfig`, a frozen `dataclass_json` config (`host`, `port`, `grpc_cert`). A `str`
-  cert is encoded to `bytes` in `__post_init__`; a field encoder writes it back as text so `to_json`/`from_json`,
-  `to_dict`/`from_dict` and `dataclasses.replace` round-trip. dataclasses-json stays (decided; do not replace it).
+- `base_client_config.py` — `BaseClientConfig`, a frozen stdlib dataclass config (`host`, `port`, `grpc_cert`) with
+  `to_dict` / `from_dict` / `to_json` / `from_json` implemented on **orjson** (dataclasses-json and marshmallow are gone
+  from the runtime tree; `tests/test_runtime_dependency_tree.py` pins it). A `str` cert is encoded to `bytes` in
+  `__post_init__`; its encoder (kept under the `"dataclasses_json"` field-metadata key, as plain data, because
+  sip/vtsi/csi/t2s/survey SDK configs still decorate their subclass with `@dataclass_json`) writes it back as text.
+  Contract, pinned by `tests/test_base_client_config_golden.py` against outcomes recorded under dataclasses-json 0.6.7
+  (`tests/fixtures/base_client_config_golden.json`; never regenerate it from the new code): unknown keys are ignored on
+  read, absent fields take defaults, `from_*` builds the subclass, values are coerced as dataclasses-json did (incl.
+  its `bool("false") is True` quirk). Deliberate differences (`DELIBERATE_DIFFERENCES`, each tested): `to_json()` with
+  no arguments is orjson's compact UTF-8 rendering (any `json.dumps` kwarg switches to `json.dumps`, byte-identical to
+  before); a missing mandatory field / non-object document raises `TypeError`; `bytes` given to `from_dict` for a `str`
+  field are kept; `NaN` is invalid JSON; `schema()` is removed. Error messages name the class/field/type, never a value.
+  Not carried over (no ONDEWO config uses them): element coercion inside collection-typed fields (a `Tuple` field
+  gets the JSON list as is), dataclasses-json `decoder` metadata, `NewType` unwrapping and its global config.
+  Keep BaseClientConfig and BaseServicesContainer STDLIB dataclasses: every SDK subclasses them with `@dataclass`.
 - `base_service_container.py` — `BaseServicesContainer`, the dataclass that concrete clients subclass to enumerate
   their services.
 - `helpers.py` — `get_struct_from_dict`, `get_attr_recursive`, `set_attr_recursive`.

@@ -28,6 +28,21 @@ make setup_developer_environment_locally
 make test            # unit tests + the 100% coverage gate
 ```
 
+Client configuration
+--------------------
+
+`BaseClientConfig` (`host`, `port`, `grpc_cert`) is a frozen dataclass that the SDKs subclass with their own
+`@dataclass(frozen=True)` fields. It serializes with [orjson](https://github.com/ijl/orjson); `from_dict` /
+`from_json` build the class they are called on and ignore unknown keys, so a config written by a newer client loads
+on an older one. The certificate is carried as PEM text:
+
+```python
+config = BaseClientConfig(host="localhost", port="50051", grpc_cert=pem_text)
+text = config.to_json()  # '{"host":"localhost","port":"50051","grpc_cert":"-----BEGIN ..."}'
+assert BaseClientConfig.from_json(text) == config
+pretty = config.to_json(indent=2, sort_keys=True)  # any json.dumps keyword argument uses json.dumps
+```
+
 gRPC retry policy
 -----------------
 
