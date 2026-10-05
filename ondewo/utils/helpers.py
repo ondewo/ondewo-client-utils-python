@@ -38,10 +38,12 @@ def get_struct_from_dict(d: Dict) -> Struct:  # type: ignore
             ``d`` is ``None``).
 
     Raises:
-        AssertionError:
-            If ``d`` is neither a ``dict`` nor ``None``.
+        TypeError:
+            If ``d`` is neither a ``dict`` nor ``None``. A real exception, not an ``assert``, so the
+            check survives ``python -O``.
     """
-    assert isinstance(d, dict) or d is None, "parameter must be a dict or None"
+    if d is not None and not isinstance(d, dict):
+        raise TypeError(f"get_struct_from_dict expects a dict or None, got {type(d).__name__}.")
 
     result: Struct = Struct()  # type: ignore
 

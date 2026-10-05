@@ -20,6 +20,7 @@ Covers ``get_struct_from_dict``, ``get_attr_recursive`` and ``set_attr_recursive
 from types import SimpleNamespace
 
 import pytest
+from google.protobuf.json_format import MessageToDict
 from google.protobuf.struct_pb2 import Struct
 
 from ondewo.utils.helpers import (
@@ -51,10 +52,15 @@ class TestGetStructFromDict:
         struct: Struct = get_struct_from_dict({})
         assert len(struct.fields) == 0
 
-    def test_non_dict_raises_assertion_error(self) -> None:
-        """Verify that a non-dict, non-None argument raises an ``AssertionError``."""
-        with pytest.raises(AssertionError):
+    def test_non_dict_raises_type_error(self) -> None:
+        """Verify a non-dict, non-None argument raises ``TypeError`` naming the type (survives ``-O``)."""
+        with pytest.raises(TypeError, match="got str"):
             get_struct_from_dict("not-a-dict")  # type: ignore[arg-type]
+
+    def test_nested_values_are_converted(self) -> None:
+        """Verify nested dict and list values become nested ``Struct`` / ``ListValue`` entries."""
+        struct: Struct = get_struct_from_dict({"outer": {"inner": 1.5}, "items": ["a", 2, None]})
+        assert MessageToDict(struct) == {"outer": {"inner": 1.5}, "items": ["a", 2.0, None]}
 
 
 class TestGetAttrRecursive:
