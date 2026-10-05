@@ -26,6 +26,7 @@ from typing import (
     Any,
     Dict,
     List,
+    Tuple,
 )
 from unittest import mock
 
@@ -34,6 +35,7 @@ import pytest
 
 from ondewo.utils import base_services_interface as bsi
 from ondewo.utils.base_client_config import BaseClientConfig
+from ondewo.utils.grpc_retry_policy import service_config_json_for
 from ondewo.utils.base_services_interface import (
     MAX_MESSAGE_LENGTH,
     BaseServicesInterface,
@@ -99,29 +101,10 @@ def test_keepalive_enabled_only_during_active_calls() -> None:
 def test_insecure_channel_without_options() -> None:
     """Verify an insecure channel is built and the stub is accessible without options."""
     service: _ConcreteService = _ConcreteService(config=_config(), use_secure_channel=False)
-    assert service.grpc_channel is not None
+    # a real channel: gRPC core accepted every default option, the service config included
+    assert isinstance(service.grpc_channel, grpc.Channel)
     assert service.stub == "the-stub"
-
-
-def test_insecure_channel_with_options_merges_defaults() -> None:
-    """Verify user-supplied options merge with the defaults for an insecure channel."""
-    service: _ConcreteService = _ConcreteService(
-        config=_config(),
-        use_secure_channel=False,
-        options={("grpc.max_send_message_length", 123)},
-    )
-    assert service.grpc_channel is not None
-
-
-def test_default_options_are_built_once_per_service_class() -> None:
-    """Verify the default options of a service class are assembled once and then reused."""
-    with mock.patch.object(bsi, "_get_grpc_channel") as get_channel:
-        _ConcreteService(config=_config(), use_secure_channel=False)
-        _ConcreteService(config=_config(), use_secure_channel=False)
-    first, second = (call.kwargs["options"] for call in get_channel.call_args_list)
-    assert first is second
-    assert dict(first)["grpc.enable_retries"] == 1
-    assert isinstance(bsi._SERVICE_CONFIG_JSON, str)
+    service.grpc_channel.close()
 
 
 def test_get_secure_channel_builds_credentials() -> None:
@@ -133,18 +116,30 @@ def test_get_secure_channel_builds_credentials() -> None:
         channel: grpc.Channel = get_secure_channel(host="localhost:50051", cert="cert-bytes", options=[])
     # a str cert is normalized to bytes before being handed to gRPC
     creds.assert_called_once_with(root_certificates=b"cert-bytes")
-    secure_channel.assert_called_once()
+    # options must reach gRPC: a get_secure_channel that dropped them would silently lose the
+    # retry policy, the keepalive and the message-size limits on every TLS channel
+    secure_channel.assert_called_once_with(target="localhost:50051", credentials=creds.return_value, options=[])
     assert channel is secure_channel.return_value
 
 
 def test_secure_channel_via_init() -> None:
-    """Verify :class:`BaseServicesInterface` builds a secure channel from a certificate."""
+    """Verify ``__init__`` opens a TLS channel with the class's full default options."""
     with (
-        mock.patch.object(bsi.grpc, "ssl_channel_credentials"),
+        mock.patch.object(bsi.grpc, "ssl_channel_credentials") as creds,
         mock.patch.object(bsi.grpc, "secure_channel") as secure_channel,
     ):
         service: _ConcreteService = _ConcreteService(config=_config(cert="my-cert"), use_secure_channel=True)
     assert service.grpc_channel is secure_channel.return_value
+    creds.assert_called_once_with(root_certificates=b"my-cert")
+    expected_options: List[Tuple[str, Any]] = bsi._grpc_options_items_for(_ConcreteService)
+    secure_channel.assert_called_once_with(
+        target="localhost:50051", credentials=creds.return_value, options=expected_options
+    )
+    options: Dict[str, Any] = dict(expected_options)
+    assert options["grpc.service_config"] == service_config_json_for(_ConcreteService)
+    assert options["grpc.enable_retries"] == 1
+    assert options["grpc.max_send_message_length"] == MAX_MESSAGE_LENGTH
+    assert options["grpc.max_receive_message_length"] == MAX_MESSAGE_LENGTH
 
 
 def test_secure_channel_missing_cert_raises() -> None:

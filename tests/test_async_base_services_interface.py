@@ -20,9 +20,11 @@ from typing import (
     Any,
     Dict,
     List,
+    Tuple,
 )
 from unittest import mock
 
+import grpc
 import pytest
 
 from ondewo.utils import async_base_services_interface as absi
@@ -33,6 +35,7 @@ from ondewo.utils.async_base_services_interface import (
     get_secure_channel,
 )
 from ondewo.utils.base_client_config import BaseClientConfig
+from ondewo.utils.grpc_retry_policy import service_config_json_for
 
 
 class _ConcreteAsyncService(AsyncBaseServicesInterface):
@@ -111,25 +114,9 @@ async def test_insecure_channel_without_options() -> None:
             This test returns nothing; it asserts the channel and stub are set.
     """
     service: _ConcreteAsyncService = _ConcreteAsyncService(config=_config(), use_secure_channel=False)
-    assert service.grpc_channel is not None
+    # a real channel: gRPC core accepted every default option, the service config included
+    assert isinstance(service.grpc_channel, grpc.aio.Channel)
     assert service.stub == "the-async-stub"
-    await service.grpc_channel.close(grace=None)
-
-
-async def test_insecure_channel_with_options_merges_defaults() -> None:
-    """
-    Verify custom options are merged with the defaults on an insecure channel.
-
-    Returns:
-        None:
-            This test returns nothing; it asserts the merged channel is built.
-    """
-    service: _ConcreteAsyncService = _ConcreteAsyncService(
-        config=_config(),
-        use_secure_channel=False,
-        options={("grpc.max_send_message_length", 123)},
-    )
-    assert service.grpc_channel is not None
     await service.grpc_channel.close(grace=None)
 
 
@@ -148,24 +135,30 @@ def test_get_secure_channel_builds_credentials() -> None:
         channel = get_secure_channel(host="localhost:50051", cert="cert-bytes", options=[])
     # a str cert is normalized to bytes before being handed to gRPC
     creds.assert_called_once_with(root_certificates=b"cert-bytes")
-    secure_channel.assert_called_once()
+    # options must reach gRPC: a get_secure_channel that dropped them would silently lose the
+    # retry policy, the keepalive and the message-size limits on every TLS channel
+    secure_channel.assert_called_once_with(target="localhost:50051", credentials=creds.return_value, options=[])
     assert channel is secure_channel.return_value
 
 
 def test_secure_channel_via_init() -> None:
-    """
-    Verify a secure channel is created during init when a certificate is present.
-
-    Returns:
-        None:
-            This test returns nothing; it asserts the channel is the secure one.
-    """
+    """Verify ``__init__`` opens a TLS channel with the class's full default options."""
     with (
-        mock.patch.object(absi.grpc, "ssl_channel_credentials"),
+        mock.patch.object(absi.grpc, "ssl_channel_credentials") as creds,
         mock.patch.object(absi.grpc.aio, "secure_channel") as secure_channel,
     ):
         service: _ConcreteAsyncService = _ConcreteAsyncService(config=_config(cert="my-cert"), use_secure_channel=True)
     assert service.grpc_channel is secure_channel.return_value
+    creds.assert_called_once_with(root_certificates=b"my-cert")
+    expected_options: List[Tuple[str, Any]] = absi._grpc_options_items_for(_ConcreteAsyncService)
+    secure_channel.assert_called_once_with(
+        target="localhost:50051", credentials=creds.return_value, options=expected_options
+    )
+    options: Dict[str, Any] = dict(expected_options)
+    assert options["grpc.service_config"] == service_config_json_for(_ConcreteAsyncService)
+    assert options["grpc.enable_retries"] == 1
+    assert options["grpc.max_send_message_length"] == MAX_MESSAGE_LENGTH
+    assert options["grpc.max_receive_message_length"] == MAX_MESSAGE_LENGTH
 
 
 def test_secure_channel_missing_cert_raises() -> None:

@@ -34,7 +34,10 @@ from google.protobuf.descriptor import (
 )
 
 from ondewo.utils import grpc_retry_policy as policy
-from tests.conftest import RETRY_TEST_SERVICE
+from tests.conftest import (
+    AGENTS_TEST_SERVICE,
+    RETRY_TEST_SERVICE,
+)
 
 
 def _idempotent_methods(service_config_json: str) -> List[str]:
@@ -82,6 +85,7 @@ def _class_in(module: ModuleType) -> type:
         ("CheckLogin", True),
         ("ValidateRegex", True),
         ("Ping", True),
+        ("Get2FAStatus", True),
         ("Getaway", False),
         ("Listen", False),
         ("BatchCreateEntities", False),
@@ -174,3 +178,67 @@ def test_the_denylist_is_pinned() -> None:
     assert policy.NON_IDEMPOTENT_DESPITE_NAME == frozenset(
         {"ondewo.nlu.Sessions.GetSessionReview", "ondewo.nlu.Sessions.GetLatestSessionReview"}
     )
+
+
+def test_the_idempotent_retry_policy_is_pinned_literally() -> None:
+    """Verify the policy values themselves, not only that the code agrees with itself."""
+    assert policy.IDEMPOTENT_RETRY_POLICY == {
+        "maxAttempts": 5,
+        "initialBackoff": "0.1s",
+        "maxBackoff": "3s",
+        "backoffMultiplier": 2,
+        "retryableStatusCodes": [
+            "CANCELLED",
+            "UNKNOWN",
+            "DEADLINE_EXCEEDED",
+            "RESOURCE_EXHAUSTED",
+            "ABORTED",
+            "INTERNAL",
+            "UNAVAILABLE",
+        ],
+    }
+
+
+def test_the_worst_case_cumulative_backoff_stays_low() -> None:
+    """Verify the 4 waits between 5 attempts add up to at most 1.5 s (before gRPC's jitter)."""
+    retry_policy: Dict[str, Any] = policy.IDEMPOTENT_RETRY_POLICY
+    initial: float = float(retry_policy["initialBackoff"].rstrip("s"))
+    maximum: float = float(retry_policy["maxBackoff"].rstrip("s"))
+    waits: List[float] = [
+        min(initial * retry_policy["backoffMultiplier"] ** attempt, maximum)
+        for attempt in range(retry_policy["maxAttempts"] - 1)
+    ]
+    assert sum(waits) <= 1.5
+
+
+def test_discovery_finds_the_service_through_an_imported_message_class(
+    retry_test_service_module: ModuleType,
+) -> None:
+    """Verify a module that only imports a MESSAGE class from ``*_pb2`` still yields the service."""
+    del retry_test_service_module.calls_pb2
+    del retry_test_service_module.CallsStub
+    message_class: type = type("StartCallersRequest", (), {"__module__": "retry_fixture.calls_pb2"})
+    retry_test_service_module.StartCallersRequest = message_class  # type: ignore[attr-defined]
+    assert "ListCallers" in _idempotent_methods(policy.service_config_json_for(_class_in(retry_test_service_module)))
+
+
+def test_services_of_several_pb2_modules_are_sorted_and_deterministic(
+    retry_test_service_module: ModuleType, agents_test_service_module: ModuleType
+) -> None:
+    """Verify services appear in ``full_name`` order and two builds emit byte-identical JSON."""
+    both: ModuleType = ModuleType("retry_fixture.services.both")
+    both.calls_pb2 = retry_test_service_module.calls_pb2  # type: ignore[attr-defined]
+    both.agents_pb2 = agents_test_service_module.agents_pb2  # type: ignore[attr-defined]
+    sys.modules[both.__name__] = both
+    try:
+        service_class: type = _class_in(both)
+        first: str = policy.service_config_json_for(service_class)
+        policy.service_config_json_for.cache_clear()
+        second: str = policy.service_config_json_for(service_class)
+    finally:
+        del sys.modules[both.__name__]
+    assert first == second
+    services: List[str] = [name["service"] for name in json.loads(first)["methodConfig"][0]["name"]]
+    assert services == sorted(services)
+    assert services[0] == AGENTS_TEST_SERVICE
+    assert services[-1] == RETRY_TEST_SERVICE

@@ -5,6 +5,9 @@ omit =
     ondewo/version.py
 
 [report]
+# The same gate as pytest.ini's --cov-fail-under=100, so `pytest -o addopts=` or a bare
+# `coverage report` cannot bypass it.
+fail_under = 100
 show_missing = True
 exclude_lines =
     pragma: no cover
