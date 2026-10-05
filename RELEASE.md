@@ -2,6 +2,18 @@
 
 *****************
 
+## Release ONDEWO CLIENT UTILS PYTHON 4.0.1
+
+### Bug Fixes
+
+* `protobuf` 7.x is accepted again (`<8` instead of `<7`). 4.0.0 could not be installed next to protobuf 7, which ondewo-csi, ondewo-sip and ondewo-vtsi run (7.35.1). The floor and the excluded vulnerable 6.x releases are unchanged
+
+### Improvements
+
+* CI runs the whole test suite on protobuf 7 (with grpcio 1.83+) in addition to the locked 6.x
+
+*****************
+
 ## Release ONDEWO CLIENT UTILS PYTHON 4.0.0
 
 ### New Features
