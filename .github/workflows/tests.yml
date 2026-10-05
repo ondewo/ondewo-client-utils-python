@@ -45,7 +45,7 @@ jobs:
 
       # The 100% coverage gate for the hand-written surface (ondewo.utils) is
       # configured in pytest.ini (--cov=ondewo.utils --cov-fail-under=100) and
-      # .coveragerc (branch coverage, omit version.py).
+      # .coveragerc (branch coverage, fail_under = 100, omit version.py).
       - name: Unit tests + 100% coverage gate (config in pytest.ini / .coveragerc)
         run: uv run --frozen pytest
 
