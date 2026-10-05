@@ -141,15 +141,20 @@ def build_service_config_json(services: List[ServiceDescriptor]) -> str:
 
     Args:
         services (List[ServiceDescriptor]):
-            The services whose idempotent methods get :data:`IDEMPOTENT_RETRY_POLICY`.
+            The services whose idempotent methods get :data:`IDEMPOTENT_RETRY_POLICY`. A service
+            listed more than once (by ``full_name``) is named once: grpc-core rejects a config that
+            names a method path twice, and then fails every RPC on the channel.
 
     Returns:
         str:
             The JSON service config; every method it does not name has no retry policy.
     """
+    unique_services: Dict[str, ServiceDescriptor] = {}
+    for service in services:
+        unique_services.setdefault(service.full_name, service)
     idempotent_method_names: List[Dict[str, str]] = [
         {"service": service.full_name, "method": method.name}
-        for service in services
+        for service in unique_services.values()
         for method in service.methods
         if is_idempotent_method(method)
     ]

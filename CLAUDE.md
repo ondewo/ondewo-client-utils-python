@@ -96,6 +96,12 @@ ondewo-vtsi-release #115 that re-sent a `StartCallers` the server was already ex
   (`ondewo.nlu.Sessions.GetSessionReview` / `GetLatestSessionReview` compute and store a review if none exists). It is
   checked AFTER `idempotency_level` (an explicit proto declaration wins) and before the regex. Add to it, never remove
   a retry by widening it to non-read verbs.
+- **The service-config JSON stays on stdlib `json`** (not orjson): it is built once per class and cached, so orjson
+  would save nothing measurable, and the byte snapshot `CALLS_SERVICE_CONFIG_SNAPSHOT` stays valid. grpc-core
+  validates it at channel creation and, on ANY error (a method path named twice, a second `{}` default entry,
+  `maxAttempts < 2`, a duration without `s`), fails every RPC on the channel with `INVALID_ARGUMENT` -- which is why
+  `build_service_config_json` de-duplicates services by `full_name`. `tests/test_service_config_json.py` feeds every
+  config shape to a real sync and `grpc.aio` channel (acceptance = an RPC reaches the server) and pins the edge cases.
 - **Streaming:** the same name rule applies to streaming methods (`GetControlStream` is retried); gRPC never retries a
   stream after its first response reached the client.
 - **ondewo-vtsi still carries its own copy** (`ondewo_vtsi/utils/grpc_retry_policy.py`), which treats `SipGet*` as
