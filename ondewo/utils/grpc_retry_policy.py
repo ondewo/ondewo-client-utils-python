@@ -34,8 +34,9 @@ starts with a read verb (:data:`READ_ONLY_METHOD_NAME_PATTERN`) and it is not on
 get-or-create reads in :data:`NON_IDEMPOTENT_DESPITE_NAME`.
 
 Public names: :func:`is_idempotent_method`, :func:`build_service_config_json`,
-:func:`service_config_json_for`, :data:`READ_ONLY_METHOD_NAME_PATTERN`,
-:data:`NON_IDEMPOTENT_DESPITE_NAME` and :data:`IDEMPOTENT_RETRY_POLICY`.
+:func:`service_config_json_for`, :func:`service_config_json_for_classes`,
+:data:`READ_ONLY_METHOD_NAME_PATTERN`, :data:`NON_IDEMPOTENT_DESPITE_NAME` and
+:data:`IDEMPOTENT_RETRY_POLICY`.
 """
 
 import json
@@ -51,6 +52,7 @@ from typing import (
     Optional,
     Pattern,
     Set,
+    Tuple,
 )
 
 import grpc
@@ -182,26 +184,24 @@ def _pb2_module_name(value: Any) -> Optional[str]:
     return name if name.endswith("_pb2") else None
 
 
-@lru_cache(maxsize=None)
-def service_config_json_for(service_class: type) -> str:
+def _services_for(service_class: type) -> Dict[str, ServiceDescriptor]:
     """
-    Build, once per class, the service config for the stubs a service-interface class uses.
+    Find the gRPC services a service-interface class uses, keyed by full name.
 
     A concrete ONDEWO service interface (e.g. ``ondewo.vtsi.client.services.calls.Calls``) lives in
     a module that imports its stub (``from ondewo.vtsi.calls_pb2_grpc import CallsStub``) and
     usually its messages (``from ondewo.vtsi import calls_pb2``). Those generated ``*_pb2`` modules
     carry the ``FileDescriptor`` whose ``services_by_name`` lists every RPC. They are imported by
     the time the class is instantiated, so the modules of the class and its bases are scanned for
-    them. A service that cannot be found simply gets the non-idempotent default: fewer retries,
-    never a duplicated side effect.
+    them.
 
     Args:
         service_class (type):
-            The concrete service-interface class being instantiated.
+            The concrete service-interface class.
 
     Returns:
-        str:
-            The JSON service config for that class (see :func:`build_service_config_json`).
+        Dict[str, ServiceDescriptor]:
+            Every service of every ``*_pb2`` module found, keyed by ``full_name``; empty if none.
     """
     pb2_module_names: Set[str] = set()
     for klass in service_class.__mro__:
@@ -218,4 +218,47 @@ def service_config_json_for(service_class: type) -> str:
         file_descriptor: Any = getattr(sys.modules.get(pb2_module_name), "DESCRIPTOR", None)
         for service in getattr(file_descriptor, "services_by_name", {}).values():
             services[service.full_name] = service
+    return services
+
+
+@lru_cache(maxsize=None)
+def service_config_json_for(service_class: type) -> str:
+    """
+    Build, once per class, the service config for the stubs a service-interface class uses.
+
+    The services are found as described in :func:`_services_for`. A service that cannot be found
+    simply gets the non-idempotent default: fewer retries, never a duplicated side effect.
+
+    Args:
+        service_class (type):
+            The concrete service-interface class being instantiated.
+
+    Returns:
+        str:
+            The JSON service config for that class (see :func:`build_service_config_json`).
+    """
+    services: Dict[str, ServiceDescriptor] = _services_for(service_class)
+    return build_service_config_json([services[name] for name in sorted(services)])
+
+
+@lru_cache(maxsize=None)
+def service_config_json_for_classes(service_classes: Tuple[type, ...]) -> str:
+    """
+    Build, once per tuple of classes, ONE service config for a channel shared by several services.
+
+    ``methodConfig`` names each method by fully qualified service and method, so the union gives
+    every method exactly the policy :func:`service_config_json_for` gives it for its own class: a
+    shared channel changes no method's retry behaviour.
+
+    Args:
+        service_classes (Tuple[type, ...]):
+            The service-interface classes that will share one channel (a tuple, so it is hashable).
+
+    Returns:
+        str:
+            The JSON service config covering the services of every class.
+    """
+    services: Dict[str, ServiceDescriptor] = {}
+    for service_class in service_classes:
+        services.update(_services_for(service_class))
     return build_service_config_json([services[name] for name in sorted(services)])

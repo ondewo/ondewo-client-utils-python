@@ -42,6 +42,7 @@ from ondewo.utils.base_client_config import BaseClientConfig
 from ondewo.utils.grpc_retry_policy import (
     build_service_config_json,
     service_config_json_for,
+    service_config_json_for_classes,
 )
 
 # A module logger, never the root one: logging.warning() at module level runs basicConfig() and
@@ -172,6 +173,51 @@ def _get_grpc_channel(
     )
 
 
+def build_shared_channel(
+    config: BaseClientConfig,
+    use_secure_channel: bool,
+    service_classes: Tuple[type, ...],
+    options: Optional[Set[Tuple[str, Any]]] = None,
+) -> grpc.Channel:
+    """
+    Open ONE channel for several service interfaces: one connection, one TLS handshake, one resolution.
+
+    By default every ``BaseServicesInterface`` opens its own channel, so a client with N services
+    opens N connections and pays N name resolutions and N TLS handshakes. Build one channel here
+    and hand it to each service with ``grpc_channel=``. The channel's retry policy is the union of
+    the per-class policies (:func:`ondewo.utils.grpc_retry_policy.service_config_json_for_classes`),
+    which gives every method exactly the policy its own channel would have had.
+
+    Args:
+        config (BaseClientConfig):
+            Client configuration providing the host, port and optional gRPC certificate.
+        use_secure_channel (bool):
+            If ``True`` open a secure (TLS) channel; if ``False`` open an insecure channel.
+        service_classes (Tuple[type, ...]):
+            The service-interface classes that will share the channel.
+        options (Optional[Set[Tuple[str, Any]]]):
+            Optional channel option overrides merged on top of the defaults, exactly as
+            ``BaseServicesInterface.__init__`` merges them; a caller ``grpc.service_config`` wins.
+
+    Returns:
+        grpc.Channel:
+            The shared channel. Closing it (e.g. through ``disconnect``) closes it for every service.
+
+    Raises:
+        ValueError:
+            If a secure channel is requested but the config has no gRPC certificate.
+    """
+    merged_options: Dict[str, Any] = dict(_DEFAULT_GRPC_OPTIONS)
+    merged_options["grpc.service_config"] = service_config_json_for_classes(tuple(service_classes))
+    if options:
+        merged_options.update(dict(options))
+    return _get_grpc_channel(
+        config=config,
+        use_secure_channel=use_secure_channel,
+        options=list(merged_options.items()),
+    )
+
+
 class BaseServicesInterface(ABC):
     """
     Abstract base class for synchronous ONDEWO gRPC service clients.
@@ -189,6 +235,8 @@ class BaseServicesInterface(ABC):
         config: BaseClientConfig,
         use_secure_channel: bool,
         options: Optional[Set[Tuple[str, Any]]] = None,
+        *,
+        grpc_channel: Optional[grpc.Channel] = None,
     ) -> None:
         """
         Initialize the interface and open the underlying gRPC channel.
@@ -204,10 +252,18 @@ class BaseServicesInterface(ABC):
                 used unchanged. Passing ``("grpc.service_config", <json>)`` replaces the default
                 retry policy, which retries idempotent methods only (see
                 ``ondewo.utils.grpc_retry_policy``).
+            grpc_channel (Optional[grpc.Channel]):
+                An already open channel to use instead of opening one, e.g. from
+                :func:`build_shared_channel`. When given, ``config``, ``use_secure_channel`` and
+                ``options`` are ignored and nothing is built. Defaults to ``None``.
 
         Returns:
             None
         """
+        if grpc_channel is not None:
+            self.grpc_channel: grpc.Channel = grpc_channel
+            return
+
         default_options: List[Tuple[str, Any]] = _grpc_options_items_for(type(self))
         if options:
             merged_options: Dict[str, Any] = dict(default_options)
@@ -216,7 +272,7 @@ class BaseServicesInterface(ABC):
         else:
             updated_options = default_options
 
-        self.grpc_channel: grpc.Channel = _get_grpc_channel(
+        self.grpc_channel = _get_grpc_channel(
             config=config,
             use_secure_channel=use_secure_channel,
             options=updated_options,
