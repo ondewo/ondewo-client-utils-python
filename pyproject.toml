@@ -32,6 +32,11 @@ dependencies = [
     "grpcio>=1.65.5",
     "grpcio-reflection>=1.65.5",
     "grpcio-tools>=1.65.5",
+    # ondewo.utils imports google.protobuf (descriptor, descriptor_pb2, struct_pb2) directly, so it
+    # is a direct dependency. The floor excludes PYSEC-2026-1805 (fixed in 5.29.6 / 6.33.5) and
+    # PYSEC-2026-1806 (fixed in 5.29.5 / 6.31.1); PyPI jumps from 5.29.6 to 6.30.0, so the
+    # vulnerable 6.x releases are excluded one by one.
+    "protobuf>=5.29.6,!=6.30.*,!=6.31.*,!=6.32.*,!=6.33.0,!=6.33.1,!=6.33.2,!=6.33.3,!=6.33.4,<7",
     "regex",
 ]
 
