@@ -2,7 +2,7 @@
 
 *****************
 
-## Unreleased
+## Release ONDEWO CLIENT UTILS PYTHON 4.0.0
 
 ### New Features
 
@@ -25,7 +25,7 @@
 * The missing-certificate `ValueError` names the config class and `host:port` only, never the config's fields (which may include a password)
 * `protobuf` is a declared dependency, `>=5.29.6` excluding the releases affected by PYSEC-2026-1805 / PYSEC-2026-1806, `<7`
 * CI runs on Python 3.12 and 3.14 and also checks formatting, type-checks the tests and audits dependencies
-* Release tooling no longer echoes or puts the PyPI password / GitHub token on a command line, and pins the uv image
+* Release tooling no longer echoes or puts the PyPI password / GitHub token on a command line (neither on twine's, docker's, `/bin/sh -c`'s nor `make release`'s argv), and pins the uv image
 * Pre-commit: the conventional-commit check accepts a `[TICKET]` prefix, the giticket regex is anchored, the mypy hook runs from the uv environment, and the hook revisions are current
 
 ### Breaking Changes
