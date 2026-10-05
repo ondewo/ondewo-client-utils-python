@@ -46,13 +46,13 @@ def _protobuf_requirement() -> Requirement:
     return protobuf
 
 
-@pytest.mark.parametrize("version", ["5.27.2", "5.29.5", "6.30.2", "6.31.1", "6.32.0", "6.33.4", "7.0.0"])
+@pytest.mark.parametrize("version", ["5.27.2", "5.29.5", "6.30.2", "6.31.1", "6.32.0", "6.33.4", "8.0.0"])
 def test_vulnerable_or_untested_protobuf_versions_are_rejected(version: str) -> None:
-    """Verify the declared range excludes every protobuf release with PYSEC-2026-1805/1806, and 7.x."""
+    """Verify the declared range excludes every protobuf release with PYSEC-2026-1805/1806, and 8.x."""
     assert not _protobuf_requirement().specifier.contains(version)
 
 
-@pytest.mark.parametrize("version", ["5.29.6", "6.33.5", "6.33.6"])
+@pytest.mark.parametrize("version", ["5.29.6", "6.33.5", "6.33.6", "7.35.1"])
 def test_fixed_protobuf_versions_are_accepted(version: str) -> None:
-    """Verify the fixed releases of both lines stay installable."""
+    """Verify the fixed releases of every supported line stay installable."""
     assert _protobuf_requirement().specifier.contains(version)
