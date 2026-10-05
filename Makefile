@@ -143,8 +143,8 @@ push_to_pypi_via_docker_image:  ## Push source code to pypi via docker
 	[ -d $(OUTPUT_DIR) ] || mkdir -p $(OUTPUT_DIR)
 	@docker run --rm \
 		-v ${shell pwd}/dist:/home/ondewo/dist \
-		-e PYPI_USERNAME=${PYPI_USERNAME} \
-		-e PYPI_PASSWORD=${PYPI_PASSWORD} \
+		-e PYPI_USERNAME \
+		-e PYPI_PASSWORD \
 		${IMAGE_UTILS_NAME} make push_to_pypi
 	rm -rf dist
 
@@ -156,8 +156,8 @@ show_pypi_via_docker_image: build_utils_docker_image ## Show the contents of the
 	[ -d $(OUTPUT_DIR) ] || mkdir -p $(OUTPUT_DIR)
 	@docker run --rm \
 		-v ${shell pwd}/dist:/home/ondewo/dist \
-		-e PYPI_USERNAME=${PYPI_USERNAME} \
-		-e PYPI_PASSWORD=${PYPI_PASSWORD} \
+		-e PYPI_USERNAME \
+		-e PYPI_PASSWORD \
 		${IMAGE_UTILS_NAME} make show_pypi
 	rm -rf dist
 
@@ -170,15 +170,18 @@ push_to_gh: login_to_gh build_gh_release ## Log in to GitHub and create the GitH
 
 release_to_github_via_docker_image:  ## Release to Github via docker
 	@docker run --rm \
-		-e GITHUB_GH_TOKEN=${GITHUB_GH_TOKEN} \
+		-e GITHUB_GH_TOKEN \
 		${IMAGE_UTILS_NAME} make push_to_gh
 
 build_package: ## Build the sdist and wheel into dist/
 	uv build
 	chmod a+rw dist -R
 
+# Credentials reach twine and docker through the environment (the global `export` above), never as
+# argv values: /proc/<pid>/cmdline is world-readable, so `-p<password>` or `-e VAR=<value>` would show
+# them to every user on the host.
 upload_package: ## Upload the built dist/* artifacts to PyPI with twine
-	@twine upload --verbose -r pypi dist/* -u${PYPI_USERNAME} -p${PYPI_PASSWORD}
+	@TWINE_USERNAME="$${PYPI_USERNAME}" TWINE_PASSWORD="$${PYPI_PASSWORD}" twine upload --verbose -r pypi dist/*
 
 clear_package_data: ## Remove build artifacts (build/, dist/, *.egg-info)
 	rm -rf build dist/* ondewo_client_utils.egg-info
@@ -189,12 +192,6 @@ ondewo_release: spc clone_devops_accounts run_release_with_devops ## Release wit
 clone_devops_accounts: ## Clones devops-accounts repo
 	if [ -d $(DEVOPS_ACCOUNT_GIT) ]; then rm -Rf $(DEVOPS_ACCOUNT_GIT); fi
 	git clone git@bitbucket.org:ondewo/${DEVOPS_ACCOUNT_GIT}.git
-
-TEST: ## Debug: echo the resolved GitHub/PyPI credentials and current release notes
-	@echo ${GITHUB_GH_TOKEN}
-	@echo ${PYPI_USERNAME}
-	@echo ${PYPI_PASSWORD}
-	@echo ${CURRENT_RELEASE_NOTES}
 
 run_release_with_devops: ## Load credentials from the devops-accounts repo and run the full release
 	$(eval info:= $(shell cat ${DEVOPS_ACCOUNT_DIR}/account_github.env | grep GITHUB_GH & cat ${DEVOPS_ACCOUNT_DIR}/account_pypi.env | grep PYPI_USERNAME & cat ${DEVOPS_ACCOUNT_DIR}/account_pypi.env | grep PYPI_PASSWORD))
