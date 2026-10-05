@@ -20,9 +20,18 @@ from typing import (
     Any,
     Dict,
     List,
+    Mapping,
 )
 
 import pytest
+from google.protobuf import (
+    descriptor_pb2,
+    descriptor_pool,
+)
+from google.protobuf.descriptor import (
+    MethodDescriptor,
+    ServiceDescriptor,
+)
 
 from ondewo.utils import grpc_retry_policy as policy
 from tests.conftest import RETRY_TEST_SERVICE
@@ -128,3 +137,40 @@ def test_the_config_is_built_once_per_class(retry_test_service_module: ModuleTyp
     """Verify the per-class discovery is cached rather than repeated per instance."""
     service_class: type = _class_in(retry_test_service_module)
     assert policy.service_config_json_for(service_class) is policy.service_config_json_for(service_class)
+
+
+def _nlu_sessions_service() -> ServiceDescriptor:
+    """
+    Build a real ``ondewo.nlu.Sessions`` descriptor in a private pool.
+
+    Returns:
+        ServiceDescriptor:
+            A service with the two get-or-create review reads and a plain ``GetSession``.
+    """
+    file_proto: descriptor_pb2.FileDescriptorProto = descriptor_pb2.FileDescriptorProto(
+        name="ondewo/nlu/session_denylist_test.proto", package="ondewo.nlu", syntax="proto3"
+    )
+    file_proto.message_type.add(name="Msg")
+    service: descriptor_pb2.ServiceDescriptorProto = file_proto.service.add(name="Sessions")
+    for method_name in ("GetSessionReview", "GetLatestSessionReview", "GetSession"):
+        service.method.add(name=method_name, input_type=".ondewo.nlu.Msg", output_type=".ondewo.nlu.Msg")
+    pool: descriptor_pool.DescriptorPool = descriptor_pool.DescriptorPool()
+    pool.Add(file_proto)
+    return pool.FindServiceByName("ondewo.nlu.Sessions")
+
+
+def test_get_or_create_reads_are_never_retried() -> None:
+    """Verify the session-review reads, which compute and store a review if none exists, are not retried."""
+    service: ServiceDescriptor = _nlu_sessions_service()
+    methods: Mapping[str, MethodDescriptor] = service.methods_by_name
+    assert policy.is_idempotent_method(methods["GetSessionReview"]) is False
+    assert policy.is_idempotent_method(methods["GetLatestSessionReview"]) is False
+    assert policy.is_idempotent_method(methods["GetSession"]) is True
+    assert _idempotent_methods(policy.build_service_config_json([service])) == ["GetSession"]
+
+
+def test_the_denylist_is_pinned() -> None:
+    """Verify the denylist names exactly the two nlu session-review reads, in full_name form."""
+    assert policy.NON_IDEMPOTENT_DESPITE_NAME == frozenset(
+        {"ondewo.nlu.Sessions.GetSessionReview", "ondewo.nlu.Sessions.GetLatestSessionReview"}
+    )

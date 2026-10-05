@@ -30,7 +30,12 @@ instead of re-sending a request.
 
 A method counts as idempotent when its proto ``MethodOptions.idempotency_level`` is
 ``NO_SIDE_EFFECTS`` or ``IDEMPOTENT``, or, since no ONDEWO proto sets that option, when its name
-starts with a read verb (:data:`READ_ONLY_METHOD_NAME_PATTERN`).
+starts with a read verb (:data:`READ_ONLY_METHOD_NAME_PATTERN`) and it is not one of the
+get-or-create reads in :data:`NON_IDEMPOTENT_DESPITE_NAME`.
+
+Public names: :func:`is_idempotent_method`, :func:`build_service_config_json`,
+:func:`service_config_json_for`, :data:`READ_ONLY_METHOD_NAME_PATTERN`,
+:data:`NON_IDEMPOTENT_DESPITE_NAME` and :data:`IDEMPOTENT_RETRY_POLICY`.
 """
 
 import json
@@ -41,6 +46,7 @@ from types import ModuleType
 from typing import (
     Any,
     Dict,
+    FrozenSet,
     List,
     Optional,
     Pattern,
@@ -63,6 +69,18 @@ from google.protobuf.descriptor_pb2 import MethodOptions
 # ``RagListDatasets``, ``LlmEvaluationGetReport``) do not match and fall back to the
 # non-idempotent default, which only ever costs a retry, never a duplicate side effect.
 READ_ONLY_METHOD_NAME_PATTERN: Pattern[str] = re.compile(r"^(?:BatchGet|Get|List|Check|Validate|Ping)(?=[A-Z0-9_]|$)")
+
+# Methods whose name starts with a read verb but which act on the server, so they must never be
+# retried (``MethodDescriptor.full_name`` form). ondewo-nlu-api ``session.proto``: both "return a
+# session-review from ondewo-kb or compute the first review if none exists", i.e. a re-sent
+# request after a server-side DEADLINE_EXCEEDED / INTERNAL could compute and store a second review.
+# A proto that declares ``idempotency_level`` explicitly still wins over this list.
+NON_IDEMPOTENT_DESPITE_NAME: FrozenSet[str] = frozenset(
+    {
+        "ondewo.nlu.Sessions.GetSessionReview",
+        "ondewo.nlu.Sessions.GetLatestSessionReview",
+    }
+)
 
 # gRPC clamps ``maxAttempts`` to the channel argument ``grpc.max_retry_attempts`` (default 5)
 # and logs an error for anything above it, so 5 is the honest maximum.
@@ -103,10 +121,13 @@ def is_idempotent_method(method: MethodDescriptor) -> bool:
     Returns:
         bool:
             ``True`` if the proto declares the method ``NO_SIDE_EFFECTS`` or ``IDEMPOTENT``, or if
-            its name starts with a read verb; ``False`` otherwise.
+            its name starts with a read verb and it is not in :data:`NON_IDEMPOTENT_DESPITE_NAME`;
+            ``False`` otherwise.
     """
     if method.GetOptions().idempotency_level in _IDEMPOTENCY_LEVELS:
         return True
+    if method.full_name in NON_IDEMPOTENT_DESPITE_NAME:
+        return False
     return READ_ONLY_METHOD_NAME_PATTERN.match(method.name) is not None
 
 
