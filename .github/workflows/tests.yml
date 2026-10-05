@@ -5,9 +5,21 @@ on:
     branches: ["**"]
   pull_request:
 
+# Least privilege: the job only reads the repository.
+permissions:
+  contents: read
+
 jobs:
   unit-tests:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.12 is what the release images use; downstream (ondewo-vtsi) consumes the package on 3.14,
+        # where instance __annotations__ no longer exist (PEP 649) and disconnect() used to break.
+        python-version: ["3.12", "3.14"]
+    env:
+      UV_PYTHON: ${{ matrix.python-version }}
     steps:
       - uses: actions/checkout@v5
 
@@ -16,8 +28,8 @@ jobs:
         with:
           enable-cache: true
 
-      - name: Set up Python 3.12
-        run: uv python install 3.12
+      - name: Set up Python ${{ matrix.python-version }}
+        run: uv python install ${{ matrix.python-version }}
 
       - name: Install package + dev/test dependencies (from uv.lock)
         run: uv sync --extra dev --frozen
@@ -25,11 +37,17 @@ jobs:
       - name: Ruff lint (replaces flake8)
         run: uv run --frozen ruff check .
 
-      - name: Mypy type check
-        run: uv run --frozen mypy ondewo
+      - name: Ruff format check
+        run: uv run --frozen ruff format --check .
+
+      - name: Mypy type check (package and tests)
+        run: uv run --frozen mypy ondewo tests
 
       # The 100% coverage gate for the hand-written surface (ondewo.utils) is
       # configured in pytest.ini (--cov=ondewo.utils --cov-fail-under=100) and
-      # .coveragerc (branch coverage, omit version.py); plain pytest picks them up.
+      # .coveragerc (branch coverage, omit version.py).
       - name: Unit tests + 100% coverage gate (config in pytest.ini / .coveragerc)
         run: uv run --frozen pytest
+
+      - name: Dependency audit (pip-audit over the locked set, blocking)
+        run: make security_audit
