@@ -12,7 +12,7 @@ This library contains base classes and utilities for higher-level interface clie
 Python Installation
 -------------------
 
-You can install the library by installing it directly from the pypi:
+The library requires Python 3.12 or newer. You can install it directly from PyPI:
 
 ```bash
 pip install ondewo-client-utils

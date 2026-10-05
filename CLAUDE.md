@@ -101,7 +101,7 @@ Everything runs through uv and the Makefile; the config lives in `pyproject.toml
   `.coveragerc` (branch coverage) repeats `fail_under = 100`, so `pytest -o addopts=` cannot bypass the gate. Any new
   runtime line needs a covering test.
 - **Lint / format / types:** `make ruff`, `make ruff_format` (`ruff format --check .` is what CI checks), `make mypy`
-  (`mypy ondewo tests`, config in `[tool.mypy]`, `python_version = "3.10"`).
+  (`mypy ondewo tests`, config in `[tool.mypy]`, `python_version = "3.12"`).
 - **Security:** `make security_audit` (pip-audit over `uv export --frozen --all-extras`, blocking; fix a finding by
   raising the floor or upgrading the locked package, never with `--ignore-vuln`).
 - **All hooks:** `make precommit_hooks_run_all_files`. The mypy hook is a local `uv run --no-sync mypy ondewo tests`,
@@ -287,7 +287,7 @@ The repo is now fully on **uv** (not just pyproject.toml):
 - New targets: `make ruff` / `make ruff_fix` / `make ruff_format` / `make mypy`. The `flake8` target is **removed**.
 - Removed for good: `requirements.txt`, `requirements-dev.txt`, `setup.cfg` — deps + tool config live in `pyproject.toml`. Do **not** re-add them.
 - `Dockerfile.utils` installs uv (`COPY --from=ghcr.io/astral-sh/uv`) and builds with uv; it no longer `COPY`s `requirements.txt`.
-- `[tool.mypy] python_version` is `3.10` here (mypy no longer accepts 3.9); numpy is not on this repo's mypy path. Downstream repos that type-check numpy 2.x need `3.12`.
+- **Python floor is 3.12** (`requires-python = ">=3.12"`, ruff `target-version = "py312"`, `[tool.mypy] python_version = "3.12"`; CI tests 3.12 and 3.14). Keep the `typing` spellings (`Optional`, `List`, `Dict`, ...): `make cythonize` compiles these modules, and the ONDEWO cythonization standard keeps `typing` forms rather than PEP 604 / PEP 585 ones. `Dockerfile.utils` builds on `python:3.12-slim`.
 - The release targets create a branch and a tag; they make no commit. Credentials reach twine and docker through the environment (the Makefile's global `export`), never as argv values (`/proc/<pid>/cmdline` is world-readable); `tests/test_release_makefile_hygiene.py` pins it. `Dockerfile.utils` pins `ghcr.io/astral-sh/uv:0.12.23`.
 - Pre-commit hook revisions are bumped with `uv run pre-commit autoupdate`; keep `ruff==<rev>` in the dev extra equal to the ruff-pre-commit rev. autoupdate flips giticket between the `v1.92` and `1.92` tags (same commit); keep `v1.92`.
 - **Validated by a real PyPI publish** — `ondewo-t2s-client 6.5.0` was built with `uv build` and uploaded via twine end-to-end; the uv release pipeline works.

@@ -27,6 +27,7 @@
 
 ### Breaking Changes
 
+* Python 3.12 or newer is required (`requires-python = ">=3.12"`); 3.9, 3.10 and 3.11 are no longer supported. The release tooling image builds on `python:3.12-slim`
 * The gRPC retry policy now retries idempotent methods only. Methods declared `NO_SIDE_EFFECTS` / `IDEMPOTENT` in their proto, or whose name starts with `Get`, `List`, `BatchGet`, `Check`, `Validate` or `Ping`, are retried up to 5 attempts on transient status codes (no longer on `NOT_FOUND` / `DATA_LOSS`). Every other method is no longer retried on any status code, `UNAVAILABLE` included, because a failed attempt may already have acted on the server; gRPC's transparent retries stay on. Pass `wait_for_ready=True` to wait for a server that is not reachable yet, or your own `grpc.service_config` option to restore a different policy
 * `ondewo.nlu.Sessions/GetSessionReview` and `GetLatestSessionReview` are no longer retried: they compute and store a review when none exists
 * `_DEFAULT_GRPC_OPTIONS["grpc.service_config"]` and `_SERVICE_CONFIG_JSON` now retry no method at all (they are the fallback for a class whose services cannot be found). Code that builds its own channel from them should use `service_config_json_for(<service class>)` instead

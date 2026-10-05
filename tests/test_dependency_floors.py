@@ -17,6 +17,7 @@ Pin the declared protobuf range: downstream SDKs resolve against it, not against
 PYSEC-2026-1805 is fixed in 5.29.6 / 6.33.5 and PYSEC-2026-1806 in 5.29.5 / 6.31.1.
 """
 
+import tomllib
 from pathlib import Path
 from typing import (
     Any,
@@ -27,8 +28,6 @@ from typing import (
 import pytest
 from packaging.requirements import Requirement
 
-# tomllib is in the standard library from Python 3.11 on; skip the module on older interpreters.
-tomllib: Any = pytest.importorskip("tomllib")
 
 PYPROJECT: Path = Path(__file__).resolve().parent.parent / "pyproject.toml"
 
