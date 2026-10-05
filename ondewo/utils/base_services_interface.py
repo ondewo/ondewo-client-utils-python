@@ -19,12 +19,12 @@ options (maximum message sizes, keepalive settings and the retry policy), and th
 gRPC service client derives.
 """
 
-import json
 import struct
 from abc import (
     ABC,
     abstractmethod,
 )
+from functools import lru_cache
 from logging import warning
 from typing import (
     Any,
@@ -39,48 +39,20 @@ from typing import (
 import grpc
 
 from ondewo.utils.base_client_config import BaseClientConfig
+from ondewo.utils.grpc_retry_policy import (
+    build_service_config_json,
+    service_config_json_for,
+)
 
 MAX_MESSAGE_LENGTH: int = 2 ** (struct.Struct("i").size * 8 - 1) - 1
 
-# The gRPC service config and default channel options are constant. They are
-# serialized/assembled once at import time instead of on every service
-# construction so that building a client with many services stays cheap
-# (ultra low latency): a client with N services would otherwise run
-# ``json.dumps`` and rebuild the options dict N times per connection.
-# https://github.com/grpc/grpc-proto/blob/master/grpc/service_config/service_config.proto
-_SERVICE_CONFIG_JSON: str = json.dumps(
-    {
-        "methodConfig": [
-            {
-                "name": [
-                    # To apply retry to all methods, put [{}] in the "name" field
-                    {}
-                    # For a specific set of services and endpoint calls
-                    # {"service": "<package>.<service>", "method": "<rpc endpoint>"}
-                    # For example:
-                    #  {"service": "ondewo.nlu.Users", "method": "Login"}
-                ],
-                "retryPolicy": {
-                    "maxAttempts": 10,
-                    "initialBackoff": "0.1s",
-                    "maxBackoff": "3s",
-                    "backoffMultiplier": 2,
-                    "retryableStatusCodes": [
-                        grpc.StatusCode.CANCELLED.name,
-                        grpc.StatusCode.UNKNOWN.name,
-                        grpc.StatusCode.DEADLINE_EXCEEDED.name,
-                        grpc.StatusCode.NOT_FOUND.name,
-                        grpc.StatusCode.RESOURCE_EXHAUSTED.name,
-                        grpc.StatusCode.ABORTED.name,
-                        grpc.StatusCode.INTERNAL.name,
-                        grpc.StatusCode.UNAVAILABLE.name,
-                        grpc.StatusCode.DATA_LOSS.name,
-                    ],
-                },
-            }
-        ]
-    }
-)
+# The default channel options are constant and assembled once at import time so that
+# building a client with many services stays cheap (ultra low latency). The retry policy is
+# per service: only idempotent methods are retried (see ``ondewo.utils.grpc_retry_policy``).
+# ``_SERVICE_CONFIG_JSON`` is the config for a class whose services cannot be found, i.e. no
+# method retried beyond gRPC's transparent retries; ``_grpc_options_items_for`` swaps in the
+# per-class config, built once per class and cached.
+_SERVICE_CONFIG_JSON: str = build_service_config_json([])
 
 _DEFAULT_GRPC_OPTIONS: Dict[str, Any] = {
     "grpc.max_send_message_length": MAX_MESSAGE_LENGTH,
@@ -98,9 +70,23 @@ _DEFAULT_GRPC_OPTIONS: Dict[str, Any] = {
     "grpc.service_config": _SERVICE_CONFIG_JSON,
 }
 
-# Pre-materialized list of the default options for the common case where no
-# per-client overrides are supplied.
-_DEFAULT_GRPC_OPTIONS_ITEMS: List[Tuple[str, Any]] = list(_DEFAULT_GRPC_OPTIONS.items())
+
+@lru_cache(maxsize=None)
+def _grpc_options_items_for(service_class: type) -> List[Tuple[str, Any]]:
+    """
+    Return the default channel options for a service-interface class, built once per class.
+
+    Args:
+        service_class (type):
+            The concrete service-interface class being instantiated.
+
+    Returns:
+        List[Tuple[str, Any]]:
+            The default options with ``grpc.service_config`` set to the class's retry policy.
+    """
+    options: Dict[str, Any] = dict(_DEFAULT_GRPC_OPTIONS)
+    options["grpc.service_config"] = service_config_json_for(service_class)
+    return list(options.items())
 
 
 def get_secure_channel(
@@ -200,18 +186,21 @@ class BaseServicesInterface(ABC):
                 If ``True`` open a secure (TLS) channel; if ``False`` open an insecure channel.
             options (Optional[Set[Tuple[str, Any]]]):
                 Optional gRPC channel option overrides as ``(key, value)`` pairs merged on top of
-                the default options. Defaults to ``None``, in which case the shared default options
-                are used unchanged.
+                the default options. Defaults to ``None``, in which case the default options are
+                used unchanged. Passing ``("grpc.service_config", <json>)`` replaces the default
+                retry policy, which retries idempotent methods only (see
+                ``ondewo.utils.grpc_retry_policy``).
 
         Returns:
             None
         """
+        default_options: List[Tuple[str, Any]] = _grpc_options_items_for(type(self))
         if options:
-            merged_options: Dict[str, Any] = dict(_DEFAULT_GRPC_OPTIONS)
+            merged_options: Dict[str, Any] = dict(default_options)
             merged_options.update(dict(options))
             updated_options: List[Tuple[str, Any]] = list(merged_options.items())
         else:
-            updated_options = _DEFAULT_GRPC_OPTIONS_ITEMS
+            updated_options = default_options
 
         self.grpc_channel: grpc.Channel = _get_grpc_channel(
             config=config,

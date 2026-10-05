@@ -2,6 +2,14 @@
 
 *****************
 
+## Unreleased
+
+### Breaking Changes
+
+* The gRPC retry policy now retries idempotent methods only. Methods declared `NO_SIDE_EFFECTS` / `IDEMPOTENT` in their proto, or whose name starts with `Get`, `List`, `BatchGet`, `Check`, `Validate` or `Ping`, are retried up to 5 attempts on transient status codes (no longer on `NOT_FOUND` / `DATA_LOSS`). Every other method is no longer retried on any status code, `UNAVAILABLE` included, because a failed attempt may already have acted on the server; gRPC's transparent retries stay on. Pass `wait_for_ready=True` to wait for a server that is not reachable yet, or your own `grpc.service_config` option to restore a different policy
+
+*****************
+
 ## Release ONDEWO CLIENT UTILS PYTHON 3.2.0
 
 ### New Features

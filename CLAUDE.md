@@ -22,9 +22,37 @@ Public building blocks (all under `ondewo/utils/`):
 - `helpers.py` — `get_struct_from_dict`, `get_attr_recursive`, `set_attr_recursive`.
 - `text.py` — `TextHelper.from_camel_to_snake_case`.
 
-The default gRPC channel options (`_DEFAULT_GRPC_OPTIONS` / `_SERVICE_CONFIG_JSON`) are assembled once at import time.
-Keep them module-level constants — do not move the `json.dumps` / options-dict construction back into `__init__`, since
-a client with N services would otherwise rebuild them N times per connection.
+- `grpc_retry_policy.py` — the per-method gRPC retry policy shared by both service interfaces.
+
+The default gRPC channel options (`_DEFAULT_GRPC_OPTIONS` / `_SERVICE_CONFIG_JSON`) are assembled once at import time,
+and the per-class options (`_grpc_options_items_for`, `service_config_json_for`) once per service class (`lru_cache`).
+Keep it that way — do not move the `json.dumps` / options-dict construction back into `__init__`, since a client with N
+services would otherwise rebuild them N times per connection. `ondewo-vtsi`'s tests import `_DEFAULT_GRPC_OPTIONS`, so
+keep that name.
+
+## gRPC retry policy — only idempotent methods are retried
+
+The policy used to be ONE `retryPolicy` for every method (`"name": [{}]`, maxAttempts 10 — silently clamped to 5 by
+gRPC's `grpc.max_retry_attempts` — on nine codes incl. `DEADLINE_EXCEEDED`, `INTERNAL`, `UNKNOWN`, `UNAVAILABLE`). In
+ondewo-vtsi-release #115 that re-sent a `StartCallers` the server was already executing (a GOAWAY mid-deploy surfaced as
+`UNAVAILABLE`) and one batch was deployed twice. Now:
+
+- **Idempotent** = proto `idempotency_level` `NO_SIDE_EFFECTS`/`IDEMPOTENT`, or the name starts with a read verb
+  (`READ_ONLY_METHOD_NAME_PATTERN`: `BatchGet|Get|List|Check|Validate|Ping`, whole word). No ONDEWO proto sets
+  `idempotency_level` (469 methods across nlu/qa/vtsi/sip/csi/s2t/t2s checked), so the verb list carries everything; it
+  was chosen from those protos. Namespaced names (`SipGetSipStatus`, `RagList*`, `LlmEvaluationGet*`) deliberately do
+  NOT match — the wrong direction for a heuristic to fail is "one retry too few", never "one duplicate side effect".
+  Idempotent methods retry on everything transient but `NOT_FOUND` / `DATA_LOSS` (definitive answers).
+- **Everything else has NO configured retry, not even on `UNAVAILABLE`.** Measured with two in-process servers on one
+  port: with `UNAVAILABLE` in a non-idempotent policy, a request whose server died mid-handler was executed again by the
+  replacement server (the #115 shape); without it, once. gRPC transparent retries (request never reached the server
+  application) stay on. The cost is that a call made while the server is not yet reachable fails at once instead of
+  being retried; `wait_for_ready=True` covers that without re-sending.
+- **Discovery:** the channel is built in `__init__`, before the subclass's `stub` exists, so the services are found by
+  scanning the module globals of the class's MRO for `*_pb2` modules and `*_pb2_grpc` classes (every ONDEWO client
+  service module imports its `XStub`), then reading `DESCRIPTOR.services_by_name`. Nothing found → the safe default.
+- Pinned by `tests/test_retry_only_idempotent_methods.py` (written against the public surface; 45 of its cases fail on
+  the old policy, incl. a real server executing a failing `StartCallers` 5 times) and `tests/test_grpc_retry_policy.py`.
 
 ## Development
 

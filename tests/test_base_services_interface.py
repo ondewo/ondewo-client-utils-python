@@ -107,10 +107,14 @@ def test_insecure_channel_with_options_merges_defaults() -> None:
     assert service.grpc_channel is not None
 
 
-def test_default_options_are_shared_and_not_reserialized() -> None:
-    """Verify the pre-materialized default options and service config are reused."""
-    # The pre-materialized default options list is reused for the no-options path.
-    assert bsi._DEFAULT_GRPC_OPTIONS_ITEMS[0][0].startswith("grpc.")
+def test_default_options_are_built_once_per_service_class() -> None:
+    """Verify the default options of a service class are assembled once and then reused."""
+    with mock.patch.object(bsi, "_get_grpc_channel") as get_channel:
+        _ConcreteService(config=_config(), use_secure_channel=False)
+        _ConcreteService(config=_config(), use_secure_channel=False)
+    first, second = (call.kwargs["options"] for call in get_channel.call_args_list)
+    assert first is second
+    assert dict(first)["grpc.enable_retries"] == 1
     assert isinstance(bsi._SERVICE_CONFIG_JSON, str)
 
 
