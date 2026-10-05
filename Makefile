@@ -48,6 +48,8 @@ IMAGE_UTILS_NAME=ondewo-client-utils-python:${ONDEWO_PACKAGE_VERSION}
 DEVOPS_ACCOUNT_GIT="ondewo-devops-accounts"
 DEVOPS_ACCOUNT_DIR="./${DEVOPS_ACCOUNT_GIT}"
 
+.PHONY: security_audit
+
 .DEFAULT_GOAL := help
 
 ########################################################
@@ -97,6 +99,10 @@ makefile_chapters: ## Shows all sections of Makefile
 
 test: ## Run the unit tests + 100% coverage gate (config in pytest.ini / .coveragerc)
 	uv run pytest
+
+security_audit: ## Audit the locked dependency set (all extras) for known CVEs with pip-audit (blocking)
+	uv export --frozen --all-extras --no-emit-project --no-hashes > $${TMPDIR:-/tmp}/ondewo-client-utils-audit.txt
+	uvx pip-audit -r $${TMPDIR:-/tmp}/ondewo-client-utils-audit.txt --no-deps --disable-pip
 
 ########################################################
 #       Release
