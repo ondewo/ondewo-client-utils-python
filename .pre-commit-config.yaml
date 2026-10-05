@@ -19,39 +19,32 @@ repos:
   # Markdown linting. MD013 (line-length) and MD033 (inline HTML) are disabled in
   # .markdownlint-cli2.yaml because the docs embed <p>/<code> and long lines.
   - repo: https://github.com/DavidAnson/markdownlint-cli2
-    rev: v0.23.0
+    rev: v0.23.3
     hooks:
       - id: markdownlint-cli2
 
   # Ruff replaces flake8 (lint) AND black + autopep8 (format). Config lives in pyproject.toml
   # ([tool.ruff]); generated *_pb2* stubs are excluded via the global exclude above.
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.20
+    rev: v0.16.10
     hooks:
-      - id: ruff  # Lint (replaces flake8)
+      - id: ruff-check  # Lint (replaces flake8); `ruff` is a legacy alias since ruff-pre-commit v0.16
         args: [ --fix ]
       - id: ruff-format  # Format (replaces black + autopep8)
 
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v2.2.0
+  # mypy from the project's own uv environment, so it sees the installed runtime deps and the
+  # types-* stubs. The old mirrors-mypy block used `language: system`, which ran a bare `mypy` that
+  # is on no PATH unless a venv happens to be activated ("Executable `mypy` not found"), and its
+  # `exclude: ondewo` skipped the package itself. Same command as `make mypy` and CI.
+  - repo: local
     hooks:
-      - id: mypy  # Run mypy type checker; note: runs with flag --missing-imports
-        exclude: ondewo
-        args: [ --config-file=pyproject.toml ]
-        # Use language: system to run Mypy git repo's existing virtual environment
-        # instead of mypy's own virtual environment. Necessary to find types-.* packages
-        # Replace language: python in your hook definition with language: system.
-        # Remove the additional_dependencies line and install Mypy into your
-        # environment directly. Now, Pre-commit will not create a separate virtualenv
-        # for the hook and will run it in whatever environment you happen to be in when
-        # you run git commit or pre-commit run => https://jaredkhan.com/blog/mypy-pre-commit
+      - id: mypy
+        name: mypy
+        entry: uv run --no-sync mypy ondewo tests
         language: system
-        # use require_serial so that script
-        # is only called once per commit
-        require_serial: true
-        # Print the number of files as sanity-check
-        verbose: true
+        pass_filenames: false
         types: [ python ]
+        require_serial: true
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
@@ -73,24 +66,43 @@ repos:
         args: [ --autofix, --indent=4 ]
       - id: name-tests-test # name pytest files correctly
         args: [ --pytest-test-first ]
+      - id: check-toml  # Attempt to load toml files (pyproject.toml) to verify syntax
+      - id: no-commit-to-branch  # Never commit straight onto master
+        args: [ --branch, master ]
 
   # Keep uv.lock in sync with pyproject.toml.
   - repo: https://github.com/astral-sh/uv-pre-commit
-    rev: 0.11.28
+    rev: 0.12.23
     hooks:
       - id: uv-lock
 
-  - repo: https://github.com/milin/giticket
-    rev: '1.92'
-    hooks:
-      - id: giticket  # Prepend the commit message with the JIRA ticket
-        args: [ '--regex=(?:(?:feature|bugfix|support|hotfix)/)?(OND[0-9]{3}-[0-9]{1,5})[_-][\w-]+',
-                '--format=[{ticket}] {commit_msg}',
-                '--mode=regex_match' ]
-
-  # Enforce Conventional Commits on the commit message.
-  - repo: https://github.com/compilerla/conventional-pre-commit
-    rev: v4.4.0
+  # Order matters on the commit-msg stage: the conventional check runs FIRST on the subject the
+  # author typed, giticket SECOND prepends `[<TICKET>] ` on ticket branches. The check is upstream
+  # conventional-pre-commit (pinned as a dependency, same rules) behind a thin wrapper that strips
+  # ONE leading `[<TICKET>] ` first, because upstream rejects any subject that does not start with a
+  # type: without it an already prefixed message (`git commit --amend`, a hand-written prefix) only
+  # got through with --no-verify, which skips every other hook too. Copied from ondewo-vtsi.
+  - repo: local
     hooks:
       - id: conventional-pre-commit
+        name: Conventional Commit
+        entry: python scripts/hooks/conventional_commit_msg.py
+        language: python
+        additional_dependencies: [ conventional-pre-commit==4.4.0 ]
         stages: [ commit-msg ]
+
+  - repo: https://github.com/milin/giticket
+    rev: v1.92  # same commit as the '1.92' tag autoupdate picks; v1.92 matches ondewo-sip and ondewo-vtsi
+    hooks:
+      - id: giticket  # Prepend the commit message with the JIRA ticket
+        # giticket uses this ONE regex twice: to find the ticket in the branch name, and to decide the
+        # message "already has a ticket" -- it bails if the regex matches ANY LINE of the message, body
+        # included. Unanchored, a body that merely MENTIONED a ticket branch silently cost the commit its
+        # prefix, and an already prefixed subject was not recognised, so an amend was prefixed twice.
+        # Anchored at the start of the line it matches only a whole branch name or a line that STARTS
+        # with `[<TICKET>] `; the `Merge <branch|tag|...> ` alternative keeps merge commits unprefixed.
+        # Same value as ondewo-sip and ondewo-vtsi; pinned by tests/test_giticket_regex.py.
+        args:
+          - "--regex=^(?:Merge (?:branch|branches|remote-tracking branch|remote-tracking branches|tag|commit|pull request) |(?:(?:feature|bugfix|support|hotfix)/)?\\[?([A-Z]{3}[0-9]{3}-[0-9]{1,5})(?:[_-][\\w-]+$|\\] ))"
+          - "--format=[{ticket}] {commit_msg}"
+          - "--mode=regex_match"
