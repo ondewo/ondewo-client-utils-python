@@ -14,9 +14,12 @@
 
 """Async unit tests for :class:`ondewo.utils.async_base_services_interface.AsyncBaseServicesInterface`."""
 
+import logging
+from dataclasses import dataclass
 from typing import (
     Any,
     Dict,
+    List,
 )
 from unittest import mock
 
@@ -175,3 +178,51 @@ def test_secure_channel_missing_cert_raises() -> None:
     """
     with pytest.raises(ValueError, match="No grpc certificate"):
         _ConcreteAsyncService(config=_config(cert=None), use_secure_channel=True)
+
+
+@dataclass(frozen=True)
+class _ConfigWithPassword(BaseClientConfig):
+    """
+    A downstream-style config subclass carrying a credential that must never reach an error message.
+
+    Attributes:
+        password (str):
+            A credential field.
+    """
+
+    password: str = ""
+
+
+async def test_insecure_warning_uses_a_module_logger_and_names_the_target(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Verify the insecure warning leaves the root logger alone and names the plaintext target."""
+    root: logging.Logger = logging.getLogger()
+    # A host application that configured no logging: module-level logging.warning() would run
+    # basicConfig() here and leave a stderr handler on the root logger.
+    monkeypatch.setattr(root, "handlers", [])
+    unconfigured: _ConcreteAsyncService = _ConcreteAsyncService(config=_config(), use_secure_channel=False)
+    assert root.handlers == []
+    await unconfigured.grpc_channel.close(grace=None)
+
+    monkeypatch.setattr(root, "handlers", [caplog.handler])
+    with caplog.at_level(logging.WARNING, logger="ondewo.utils.async_base_services_interface"):
+        service: _ConcreteAsyncService = _ConcreteAsyncService(config=_config(), use_secure_channel=False)
+    records: List[logging.LogRecord] = [
+        r for r in caplog.records if r.name == "ondewo.utils.async_base_services_interface"
+    ]
+    assert len(records) == 1
+    assert records[0].levelno == logging.WARNING
+    assert "localhost:50051" in records[0].getMessage()
+    await service.grpc_channel.close(grace=None)
+
+
+def test_missing_cert_error_never_renders_the_config() -> None:
+    """Verify the missing-certificate error names class and target but not the config's fields."""
+    config: _ConfigWithPassword = _ConfigWithPassword(host="h", port="1", password="hunter2")
+    with pytest.raises(ValueError, match="No grpc certificate") as error:
+        _ConcreteAsyncService(config=config, use_secure_channel=True)
+    assert "hunter2" not in str(error.value)
+    assert "hunter2" not in repr(error.value)
+    assert "h:1" in str(error.value)
+    assert "_ConfigWithPassword" in str(error.value)

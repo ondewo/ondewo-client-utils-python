@@ -17,13 +17,13 @@ Async counterpart of ``base_services_interface`` built on ``grpc.aio``: it
 provides channel factory helpers and the abstract ``AsyncBaseServicesInterface``.
 """
 
+import logging
 import struct
 from abc import (
     ABC,
     abstractmethod,
 )
 from functools import lru_cache
-from logging import warning
 from typing import (
     Any,
     Dict,
@@ -41,6 +41,10 @@ from ondewo.utils.grpc_retry_policy import (
     build_service_config_json,
     service_config_json_for,
 )
+
+# A module logger, never the root one: logging.warning() at module level runs basicConfig() and
+# installs a stderr handler on the HOST application's root logger.
+_LOGGER: logging.Logger = logging.getLogger(__name__)
 
 MAX_MESSAGE_LENGTH: int = 2 ** (struct.Struct("i").size * 8 - 1) - 1
 
@@ -144,11 +148,15 @@ def _get_grpc_channel(
             If a secure channel is requested but the config has no gRPC certificate.
     """
     if not use_secure_channel:
-        warning("Using insecure grpc channel.")
+        _LOGGER.warning("Using an INSECURE (plaintext) gRPC channel to %s.", config.host_and_port)
         return grpc.aio.insecure_channel(target=config.host_and_port, options=options)
 
     if not config.grpc_cert:
-        raise ValueError(f"No grpc certificate found on config {config}.")
+        # Never interpolate the config itself: a downstream subclass may carry a password field.
+        raise ValueError(
+            f"No grpc certificate found on {type(config).__name__} for {config.host_and_port}; "
+            "pass grpc_cert or use_secure_channel=False."
+        )
 
     return get_secure_channel(
         host=config.host_and_port,
