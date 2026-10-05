@@ -14,10 +14,34 @@
 
 """Data class holding the host, port and gRPC certificate configuration for ONDEWO gRPC clients."""
 
-from dataclasses import dataclass
-from typing import Optional
+from dataclasses import (
+    dataclass,
+    field,
+)
+from typing import (
+    Optional,
+    Union,
+)
 
-from dataclasses_json import dataclass_json
+from dataclasses_json import (
+    config,
+    dataclass_json,
+)
+
+
+def _encode_grpc_cert(value: Optional[Union[str, bytes]]) -> Optional[str]:
+    """
+    Serialize ``grpc_cert`` as PEM text, so ``to_dict`` / ``to_json`` round-trip through ``from_*``.
+
+    Args:
+        value (Optional[Union[str, bytes]]):
+            The certificate as held by the config (``bytes`` after ``__post_init__``).
+
+    Returns:
+        Optional[str]:
+            The certificate decoded to ``str``, or ``value`` unchanged if it is not ``bytes``.
+    """
+    return value.decode() if isinstance(value, bytes) else value
 
 
 @dataclass_json
@@ -32,27 +56,31 @@ class BaseClientConfig:
         port (str):
             Port of the ONDEWO QA services host (e.g., '50444', etc.)
         grpc_cert (Optional[str]):
-            The certificate required for setting up a secure gRPC channel. This field must be set unless
-            the client is instantiated using `use_secure_channel=False` (not recommended).
+            The PEM root certificate required for setting up a secure gRPC channel. This field must be
+            set unless the client is instantiated using `use_secure_channel=False` (not recommended). A
+            ``str`` is encoded to ``bytes`` on construction and ``bytes`` are kept as they are;
+            ``to_dict`` / ``to_json`` carry the PEM as text, so ``from_dict`` / ``from_json`` and
+            ``dataclasses.replace`` give back an equal config.
     """
 
     host: str
     port: str
-    grpc_cert: Optional[str] = None
+    grpc_cert: Optional[str] = field(default=None, metadata=config(encoder=_encode_grpc_cert))
 
     def __post_init__(self) -> None:
         """
         Encode the gRPC certificate to bytes after the frozen dataclass is initialised.
 
-        The certificate is provided as a ``str`` on construction and is transparently encoded to
-        ``bytes`` here using ``object.__setattr__`` (required because the dataclass is frozen). If
-        ``grpc_cert`` is ``None`` it is left unchanged.
+        A non-empty ``str`` certificate is encoded to ``bytes`` using ``object.__setattr__`` (required
+        because the dataclass is frozen). ``bytes`` (e.g. from ``dataclasses.replace`` on an existing
+        config), ``""`` and ``None`` are left unchanged.
 
         Returns:
             None:
                 This method mutates the instance in place and returns nothing.
         """
-        object.__setattr__(self, "grpc_cert", self.grpc_cert.encode() if self.grpc_cert else self.grpc_cert)
+        if isinstance(self.grpc_cert, str) and self.grpc_cert:
+            object.__setattr__(self, "grpc_cert", self.grpc_cert.encode())
 
     @property
     def host_and_port(self) -> str:
