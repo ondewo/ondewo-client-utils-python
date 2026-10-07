@@ -102,6 +102,8 @@ def get_secure_channel(
     host: str,
     cert: Union[str, bytes],
     options: Optional[List[Tuple[str, Any]]] = None,
+    client_cert: Optional[Union[str, bytes]] = None,
+    client_key: Optional[Union[str, bytes]] = None,
 ) -> grpc.aio.Channel:
     """
     Create a secure asynchronous gRPC channel to the given host.
@@ -121,7 +123,11 @@ def get_secure_channel(
             A secure asynchronous gRPC channel connected to the target host.
     """
     root_certificates: bytes = cert.encode() if isinstance(cert, str) else cert
-    credentials: grpc.ChannelCredentials = grpc.ssl_channel_credentials(root_certificates=root_certificates)
+    credentials: grpc.ChannelCredentials = grpc.ssl_channel_credentials(
+        root_certificates=root_certificates,
+        private_key=client_key.encode() if isinstance(client_key, str) else client_key,
+        certificate_chain=client_cert.encode() if isinstance(client_cert, str) else client_cert,
+    )
     return grpc.aio.secure_channel(
         target=host,
         credentials=credentials,
@@ -155,6 +161,11 @@ def _get_grpc_channel(
             If a secure channel is requested but the config has no gRPC certificate.
     """
     if not use_secure_channel:
+        if config.grpc_client_cert:
+            raise ValueError(
+                f"{type(config).__name__} for {config.host_and_port} carries a client certificate for mutual "
+                "TLS, but use_secure_channel=False would send it nowhere; use a secure channel."
+            )
         _LOGGER.warning("Using an INSECURE (plaintext) gRPC channel to %s.", config.host_and_port)
         return grpc.aio.insecure_channel(target=config.host_and_port, options=options)
 
@@ -169,6 +180,8 @@ def _get_grpc_channel(
         host=config.host_and_port,
         cert=config.grpc_cert,
         options=options,
+        client_cert=config.grpc_client_cert,
+        client_key=config.grpc_client_key,
     )
 
 

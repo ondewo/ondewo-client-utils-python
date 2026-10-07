@@ -134,7 +134,7 @@ def test_get_secure_channel_builds_credentials() -> None:
     ):
         channel = get_secure_channel(host="localhost:50051", cert="cert-bytes", options=[])
     # a str cert is normalized to bytes before being handed to gRPC
-    creds.assert_called_once_with(root_certificates=b"cert-bytes")
+    creds.assert_called_once_with(root_certificates=b"cert-bytes", private_key=None, certificate_chain=None)
     # options must reach gRPC: a get_secure_channel that dropped them would silently lose the
     # retry policy, the keepalive and the message-size limits on every TLS channel
     secure_channel.assert_called_once_with(target="localhost:50051", credentials=creds.return_value, options=[])
@@ -149,7 +149,7 @@ def test_secure_channel_via_init() -> None:
     ):
         service: _ConcreteAsyncService = _ConcreteAsyncService(config=_config(cert="my-cert"), use_secure_channel=True)
     assert service.grpc_channel is secure_channel.return_value
-    creds.assert_called_once_with(root_certificates=b"my-cert")
+    creds.assert_called_once_with(root_certificates=b"my-cert", private_key=None, certificate_chain=None)
     expected_options: List[Tuple[str, Any]] = absi._grpc_options_items_for(_ConcreteAsyncService)
     secure_channel.assert_called_once_with(
         target="localhost:50051", credentials=creds.return_value, options=expected_options

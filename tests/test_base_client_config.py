@@ -40,14 +40,15 @@ import pytest
 from ondewo.utils import base_client_config as module
 from ondewo.utils.base_client_config import BaseClientConfig
 from tests.test_base_client_config_golden import (
+    GOLDEN_PATH,
     PEM,
     REFRESH_TOKEN,
-    GOLDEN_PATH,
     SECRET,
     Inner,
     KeycloakConfig,
     NestedConfig,
     PipeUnionConfig,
+    _without_unset_added_fields,
     all_cases,
 )
 
@@ -193,7 +194,7 @@ def test_empty_certificate_stays_empty() -> None:
     """Verify an empty-string certificate is left as ``""`` and serialized as ``""``."""
     config: BaseClientConfig = BaseClientConfig(host="", port="", grpc_cert="")
     assert config.grpc_cert == ""
-    assert config.to_json() == '{"host":"","port":"","grpc_cert":""}'
+    assert config.to_json() == '{"host":"","port":"","grpc_cert":"","grpc_client_cert":null,"grpc_client_key":null}'
     assert BaseClientConfig.from_json(config.to_json()) == config
 
 
@@ -234,7 +235,7 @@ def test_a_subclass_with_a_password_round_trips_through_json() -> None:
 def test_to_json_is_the_same_document_rendered_compact_and_utf8(name: str) -> None:
     """Verify ``to_json()`` is exactly dataclasses-json's document with orjson's compact UTF-8 layout."""
     old: str = _golden(f"{name}.to_json")["result"]
-    new: str = all_cases()[f"{name}.to_json"]()
+    new: str = _without_unset_added_fields(all_cases()[f"{name}.to_json"]())
     assert new == json.dumps(json.loads(old), separators=(",", ":"), ensure_ascii=False)
     assert json.loads(new) == json.loads(old)
     assert list(json.loads(new)) == list(json.loads(old))  # same key order
@@ -392,6 +393,8 @@ def test_non_json_leaves_are_rendered_like_dataclasses_json() -> None:
         "host": "h",
         "port": "1",
         "grpc_cert": None,
+        "grpc_client_cert": None,
+        "grpc_client_key": None,
         "blob": [1, 2],
         "ids": [3],
         "proxy": {"a": 1},

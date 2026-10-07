@@ -47,6 +47,8 @@ dependencies = [
 # pytest-asyncio were already present.
 dev = [
     "Cython>=3.0.0",
+    # Test-only: mints the throwaway CAs and leaves the mutual-TLS tests handshake against.
+    "cryptography>=42.0.0",
     # Same version as the ruff-pre-commit hook rev, so `make ruff`, CI and the hook agree.
     "ruff==0.16.10",
     "mypy>=1.11.0",

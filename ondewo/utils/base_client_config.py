@@ -309,26 +309,56 @@ class BaseClientConfig:
             ``str`` is encoded to ``bytes`` on construction and ``bytes`` are kept as they are;
             ``to_dict`` / ``to_json`` carry the PEM as text, so ``from_dict`` / ``from_json`` and
             ``dataclasses.replace`` give back an equal config.
+        grpc_client_cert (Optional[str]):
+            The PEM client certificate chain presented to a server that requires mutual TLS. Set it
+            together with ``grpc_client_key``, or neither: without both the channel is plain TLS and the
+            server asks for no client certificate. Encoded and serialized like ``grpc_cert``.
+        grpc_client_key (Optional[str]):
+            The PEM private key of ``grpc_client_cert``. Encoded and serialized like ``grpc_cert``.
     """
 
     host: str
     port: str
     grpc_cert: Optional[str] = field(default=None, metadata={FIELD_METADATA_KEY: {"encoder": _encode_grpc_cert}})
+    grpc_client_cert: Optional[str] = field(
+        default=None,
+        metadata={FIELD_METADATA_KEY: {"encoder": _encode_grpc_cert}},
+    )
+    # repr=False: a config is printed into logs and tracebacks, and this is a private key.
+    grpc_client_key: Optional[str] = field(
+        default=None,
+        repr=False,
+        metadata={FIELD_METADATA_KEY: {"encoder": _encode_grpc_cert}},
+    )
 
     def __post_init__(self) -> None:
         """
-        Encode the gRPC certificate to bytes after the frozen dataclass is initialised.
+        Encode the gRPC certificates and key to bytes after the frozen dataclass is initialised.
 
-        A non-empty ``str`` certificate is encoded to ``bytes`` using ``object.__setattr__`` (required
-        because the dataclass is frozen). ``bytes`` (e.g. from ``dataclasses.replace`` on an existing
-        config), ``""`` and ``None`` are left unchanged.
+        A non-empty ``str`` value of ``grpc_cert``, ``grpc_client_cert`` or ``grpc_client_key`` is encoded
+        to ``bytes`` using ``object.__setattr__`` (required because the dataclass is frozen). ``bytes``
+        (e.g. from ``dataclasses.replace`` on an existing config), ``""`` and ``None`` are left unchanged.
 
         Returns:
             None:
                 This method mutates the instance in place and returns nothing.
+
+        Raises:
+            ValueError:
+                If exactly one of ``grpc_client_cert`` and ``grpc_client_key`` is set: a client
+                certificate cannot be presented without its key, nor a key without its certificate.
         """
-        if isinstance(self.grpc_cert, str) and self.grpc_cert:
-            object.__setattr__(self, "grpc_cert", self.grpc_cert.encode())
+        name: str
+        for name in ("grpc_cert", "grpc_client_cert", "grpc_client_key"):
+            value: Any = getattr(self, name)
+            if isinstance(value, str) and value:
+                object.__setattr__(self, name, value.encode())
+        if bool(self.grpc_client_cert) != bool(self.grpc_client_key):
+            # Never interpolate either value: the key is a secret.
+            raise ValueError(
+                f"{type(self).__name__} for {self.host_and_port} sets only one of grpc_client_cert and "
+                "grpc_client_key; set both to use mutual TLS, or neither."
+            )
 
     @property
     def host_and_port(self) -> str:

@@ -2,6 +2,21 @@
 
 *****************
 
+## Release ONDEWO CLIENT UTILS PYTHON 4.1.0
+
+### New Features
+
+* Mutual TLS: `BaseClientConfig` takes an optional client identity, `grpc_client_cert` (PEM client certificate chain) and `grpc_client_key` (its PEM private key). With both set, the sync and the async secure channel present the client leaf to a server that requires client certificates; with neither set the channel is plain TLS, exactly as before. `get_secure_channel` (sync and async) takes the same pair as `client_cert` / `client_key`
+* Both fields are encoded and serialized like `grpc_cert` (`str` becomes `bytes`, `to_dict` / `to_json` carry PEM text, `from_dict` / `from_json` / `dataclasses.replace` round-trip), and a document written before 4.1.0 still loads
+
+### Improvements
+
+* Setting only one of `grpc_client_cert` / `grpc_client_key` raises `ValueError`, as does a plaintext channel (`use_secure_channel=False`) for a config that carries a client identity, which would otherwise silently send it nowhere. Neither message renders a PEM
+* `grpc_client_key` is left out of the config's `repr`, so a logged or traceback-printed config never shows the private key
+* Real handshake tests (sync and `grpc.aio`) pin both modes: mutual TLS serves a client leaf from the server's CA and refuses none or a foreign one, a TLS-only server serves clients with and without a leaf, and server verification is unchanged
+
+*****************
+
 ## Release ONDEWO CLIENT UTILS PYTHON 4.0.1
 
 ### Bug Fixes

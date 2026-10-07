@@ -1,3 +1,3 @@
 """Single source of truth for the version of the ``ondewo-client-utils`` package."""
 
-__version__: str = "4.0.1"
+__version__: str = "4.1.0"

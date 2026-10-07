@@ -26,6 +26,7 @@ Regenerate (only ever against the code the fixture is meant to describe):
 
 import functools
 import json
+import re
 import warnings
 from dataclasses import (
     dataclass,
@@ -365,10 +366,44 @@ def test_the_fixture_covers_exactly_the_cases() -> None:
     assert set(_golden()) == set(all_cases())
 
 
+#: Fields added after the fixture was recorded. Unset, they are the only difference to the dataclasses-json era,
+#: so the comparison drops them; their own behaviour is pinned in test_base_client_config.py.
+FIELDS_ADDED_SINCE_THE_FIXTURE: FrozenSet[str] = frozenset({"grpc_client_cert", "grpc_client_key"})
+_UNSET_ADDED_FIELD_IN_JSON: "re.Pattern[str]" = re.compile(
+    r',\s*"(?:' + "|".join(sorted(FIELDS_ADDED_SINCE_THE_FIXTURE)) + r')":\s*null'
+)
+
+
+def _without_unset_added_fields(value: Any) -> Any:
+    """
+    Remove the fields added since the fixture, wherever an outcome renders them unset.
+
+    Args:
+        value (Any):
+            An outcome or a part of one: a dict, a list, a JSON document or a plain value.
+
+    Returns:
+        Any:
+            The same value without ``grpc_client_cert`` / ``grpc_client_key`` entries that are ``None``,
+            the repr ``"None"`` or JSON ``null``.
+    """
+    if isinstance(value, dict):
+        return {
+            key: _without_unset_added_fields(item)
+            for key, item in value.items()
+            if not (key in FIELDS_ADDED_SINCE_THE_FIXTURE and item in (None, "None"))
+        }
+    if isinstance(value, list):
+        return [_without_unset_added_fields(item) for item in value]
+    if isinstance(value, str):
+        return _UNSET_ADDED_FIELD_IN_JSON.sub("", value)
+    return value
+
+
 @pytest.mark.parametrize("case_id", sorted(set(all_cases()) - DELIBERATE_DIFFERENCES))
 def test_the_outcome_matches_dataclasses_json(case_id: str) -> None:
-    """Verify the case reproduces what dataclasses-json produced, byte for byte."""
-    assert _outcome(all_cases()[case_id]) == _golden()[case_id]
+    """Verify the case reproduces what dataclasses-json produced, byte for byte, apart from unset new fields."""
+    assert _without_unset_added_fields(_outcome(all_cases()[case_id])) == _golden()[case_id]
 
 
 if __name__ == "__main__":
