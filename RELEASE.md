@@ -2,6 +2,20 @@
 
 *****************
 
+## Release ONDEWO CLIENT UTILS PYTHON 4.1.1
+
+### Bug Fixes
+
+* `BaseClient.disconnect()` / `AsyncBaseClient.disconnect()` closed no further channel once a services field had no channel (e.g. `None`): the lookup raised outside the per-channel error handling. Every remaining channel is now closed, and that error is still re-raised afterwards
+* gRPC retry-policy discovery no longer raises `AttributeError` when a scanned module holds a type whose `__module__` is not a `str` (as Cython's shared `coroutine` / `generator` types have)
+
+### Improvements
+
+* The sdist no longer ships a partial test suite (test modules without `conftest.py` and fixtures); it now matches the one built in the release image
+* The release guard (`make spc`) stops on an existing release branch or tag with `&& exit 1` (the echo was backgrounded with `&`) and also asks origin by exact ref name, since local refs can be stale
+
+*****************
+
 ## Release ONDEWO CLIENT UTILS PYTHON 4.1.0
 
 ### New Features

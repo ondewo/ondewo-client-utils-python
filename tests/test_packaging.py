@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""The wheel ships the PEP 561 ``py.typed`` marker, so downstream mypy type-checks ``ondewo.utils``."""
+"""Packaging: the wheel ships ``py.typed``; the sdist ships no half test suite."""
 
 import tomllib
 from pathlib import Path
@@ -31,3 +31,14 @@ def test_package_data_ships_the_py_typed_marker() -> None:
     """Verify pyproject's setuptools package-data includes ``py.typed`` for ``ondewo.utils``."""
     pyproject: Dict[str, Any] = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     assert "py.typed" in pyproject["tool"]["setuptools"]["package-data"]["ondewo.utils"]
+
+
+def test_the_sdist_leaves_the_tests_out() -> None:
+    """
+    Verify MANIFEST.in prunes ``tests``.
+
+    setuptools adds ``tests/test_*.py`` on its own but not ``conftest.py`` or the fixtures, so an
+    sdist built outside the release image carried a suite that could not run, and differed from
+    the one released from the image (which has no ``tests/``).
+    """
+    assert "prune tests" in (REPO_ROOT / "MANIFEST.in").read_text(encoding="utf-8").splitlines()

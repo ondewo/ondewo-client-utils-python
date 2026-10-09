@@ -88,3 +88,17 @@ def test_the_release_guard_matches_the_branch_and_tag_exactly() -> None:
         'git branch --all --list "release/${ONDEWO_PACKAGE_VERSION}" "origin/release/${ONDEWO_PACKAGE_VERSION}"'
         in recipe
     )
+
+
+def test_the_release_guard_stops_on_an_existing_ref_and_asks_origin() -> None:
+    """
+    Verify ``spc`` exits with ``&& exit 1`` and also checks origin by exact ref name.
+
+    ``echo ... & exit 1`` backgrounded the echo; local refs alone can be stale.
+    """
+    recipe: str = MAKEFILE.split("\nspc:", 1)[1].split("\n\n", 1)[0]
+    assert "& exit" not in recipe.replace("&& exit", "")
+    assert (
+        'git ls-remote origin "refs/heads/release/${ONDEWO_PACKAGE_VERSION}" "refs/tags/${ONDEWO_PACKAGE_VERSION}"'
+        in recipe
+    )

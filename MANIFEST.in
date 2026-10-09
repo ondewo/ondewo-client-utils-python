@@ -2,3 +2,4 @@ global-exclude *.pyc
 include LICENSE
 include ondewo/*
 include pyproject.toml
+prune tests

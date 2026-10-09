@@ -184,6 +184,9 @@ def _pb2_module_name(value: Any) -> Optional[str]:
         name = value.__module__
     else:
         return None
+    # Some extension types (e.g. Cython's shared ``coroutine``) expose a descriptor, not a str.
+    if not isinstance(name, str):
+        return None
     if name.endswith("_pb2_grpc"):
         name = name[: -len("_grpc")]
     return name if name.endswith("_pb2") else None

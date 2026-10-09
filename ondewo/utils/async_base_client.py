@@ -150,11 +150,13 @@ class AsyncBaseClient(ABC):
             # __annotations__ (PEP 649), and on every version __annotations__ omits the fields a
             # parent container declares, so their channels leaked.
             for service_field in dataclasses.fields(self.services):
-                channel: Any = getattr(self.services, service_field.name).grpc_channel
-                if id(channel) in closed:
-                    continue
-                closed.add(id(channel))
+                # The lookup sits inside the try too: a field without a channel (e.g. None) must not
+                # leave the channels of the fields after it open.
                 try:
+                    channel: Any = getattr(self.services, service_field.name).grpc_channel
+                    if id(channel) in closed:
+                        continue
+                    closed.add(id(channel))
                     await channel.close(grace=None)
                 except Exception as error:
                     first_error = first_error or error

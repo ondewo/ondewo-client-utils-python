@@ -266,6 +266,16 @@ async def test_only_the_first_close_error_is_raised() -> None:
     assert client.services is None
 
 
+async def test_a_missing_channel_in_an_earlier_field_still_closes_later_channels() -> None:
+    """Verify a field without a channel neither stops the loop nor hides its error."""
+    second: Any = _make_service()
+    client: _AsyncClient = _client_with(_TwoServices(first=None, second=second))
+    with pytest.raises(AttributeError, match="grpc_channel"):
+        await client.disconnect()
+    second.grpc_channel.close.assert_awaited_once_with(grace=None)
+    assert client.services is None
+
+
 async def test_a_shared_channel_is_closed_once() -> None:
     """Verify a channel held by two services is closed exactly once."""
     shared: Any = _make_service()

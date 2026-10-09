@@ -137,6 +137,16 @@ def test_a_class_without_generated_modules_gets_the_default() -> None:
         del sys.modules[stray.__name__]
 
 
+def test_discovery_ignores_a_class_whose_module_attribute_is_not_a_string(
+    retry_test_service_module: ModuleType,
+) -> None:
+    """Verify a global type with a non-``str`` ``__module__`` (as Cython's shared types have) is skipped."""
+    odd: type = type("Odd", (), {})
+    odd.__module__ = 42  # type: ignore[assignment]
+    retry_test_service_module.odd = odd  # type: ignore[attr-defined]
+    assert "ListCallers" in _idempotent_methods(policy.service_config_json_for(_class_in(retry_test_service_module)))
+
+
 def test_the_config_is_built_once_per_class(retry_test_service_module: ModuleType) -> None:
     """Verify the per-class discovery is cached rather than repeated per instance."""
     service_class: type = _class_in(retry_test_service_module)
