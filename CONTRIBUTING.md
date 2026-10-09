@@ -1,32 +1,38 @@
-# How to become a contributor and submit your own code (WIP)
+# Contributing
 
-## Contributor License Agreements
+## Setup
 
-We'd love to accept your sample apps and patches! Before we can take them, we
-have to jump a couple of legal hurdles.
+Python 3.12 or newer. The Makefile installs [uv](https://docs.astral.sh/uv/), syncs the locked runtime + dev
+dependencies into `.venv` and installs the pre-commit hooks:
 
-Please fill out either the individual or corporate Contributor License Agreement
-(CLA).
+```bash
+make setup_developer_environment_locally
+```
 
-* If you are an individual writing original source code and you're sure you
-    own the intellectual property, then you'll need to sign an [individual CLA](TODO:).
-* If you work for a company that wants to allow you to contribute your work,
-    then you'll need to sign a [corporate CLA](TODO:).
+Without make: `uv sync --extra dev`, then `uv run pre-commit install` and
+`uv run pre-commit install --hook-type commit-msg` (the commit-message hooks below need the second one).
 
-Follow either of the two links above to access the appropriate CLA and
-instructions for how to sign and return it. Once we receive it, we'll be able to
-accept your pull requests.
+## Checks
 
-## Contributing A Patch
+```bash
+make test                 # uv run pytest: unit tests + the 100% branch-coverage gate
+make ruff                 # lint (ruff check); `make ruff_format` formats
+make mypy                 # static type checks
+uv run pre-commit run --all-files
+```
 
-1. Submit an issue describing your proposed change to the repo in question.
-1. The repo owner will respond to your issue promptly.
-1. If your proposed change is accepted, and you haven't already done so, sign a
-   Contributor License Agreement (see details above).
-1. Fork the desired repo, develop and test your code changes.
-1. Ensure that your code adheres to the existing style in the sample to which
-   you are contributing. Refer to the
-   [Google Cloud Platform Samples Style Guide](https://cloud.google.com/community/tutorials/styleguide) for the
-   recommended coding standards for this organization.
-1. Ensure that your code has an appropriate set of unit tests which all pass.
-1. Submit a pull request.
+The coverage gate is enforced: every new runtime line or branch needs a covering test. Name test files `test_*.py`.
+
+## Branches and commits
+
+- Branch from `master` with the JIRA ticket in the name, e.g. `feature/OND211-2443-short-description`
+  (`bugfix/`, `support/` and `hotfix/` work too).
+- Write [Conventional Commits](https://www.conventionalcommits.org/) subjects (`feat(tls): ...`, `fix: ...`,
+  `docs: ...`); the `commit-msg` hook checks them.
+- Do **not** type the ticket into the subject: the `giticket` hook prepends `[OND211-2443]` from the branch name.
+- Commits straight onto `master` are refused by a hook; open a pull request.
+
+## Release notes
+
+Add a bullet for every user-visible change to the topmost (unreleased) section of `RELEASE.md`, under
+`New Features`, `Improvements`, `Bug Fixes` or `Breaking Changes`.

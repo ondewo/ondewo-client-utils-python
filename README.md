@@ -31,17 +31,149 @@ make test            # unit tests + the 100% coverage gate
 Client configuration
 --------------------
 
-`BaseClientConfig` (`host`, `port`, `grpc_cert`) is a frozen dataclass that the SDKs subclass with their own
-`@dataclass(frozen=True)` fields. It serializes with [orjson](https://github.com/ijl/orjson); `from_dict` /
-`from_json` build the class they are called on and ignore unknown keys, so a config written by a newer client loads
-on an older one. The certificate is carried as PEM text:
+`BaseClientConfig` (`host`, `port`, `grpc_cert`, `grpc_client_cert`, `grpc_client_key`) is a frozen dataclass that
+the SDKs subclass with their own `@dataclass(frozen=True)` fields. It serializes with
+[orjson](https://github.com/ijl/orjson); `from_dict` / `from_json` build the class they are called on and ignore
+unknown keys, so a config written by a newer client loads on an older one. Certificates and the key are carried as
+PEM text, and an unset one as `null`:
 
 ```python
 config = BaseClientConfig(host="localhost", port="50051", grpc_cert=pem_text)
-text = config.to_json()  # '{"host":"localhost","port":"50051","grpc_cert":"-----BEGIN ..."}'
+text = config.to_json()
+# '{"host":"localhost","port":"50051","grpc_cert":"-----BEGIN ...","grpc_client_cert":null,"grpc_client_key":null}'
 assert BaseClientConfig.from_json(text) == config
 pretty = config.to_json(indent=2, sort_keys=True)  # any json.dumps keyword argument uses json.dumps
 ```
+
+TLS, mutual TLS and certificates
+--------------------------------
+
+gRPC encrypts with **TLS**. "SSL" in names such as `grpc.ssl_channel_credentials` or
+`grpc.ssl_target_name_override` is legacy naming; no SSL protocol version is ever negotiated.
+
+| Mode                           | Service / channel argument | Config fields                                                  |
+|--------------------------------|----------------------------|----------------------------------------------------------------|
+| Plaintext (not for production) | `use_secure_channel=False` | none                                                           |
+| Server-authenticated TLS       | `use_secure_channel=True`  | `grpc_cert` = PEM of the CA that signed the server certificate |
+| Mutual TLS                     | `use_secure_channel=True`  | `grpc_cert` plus `grpc_client_cert` and `grpc_client_key`      |
+
+Rules the code enforces:
+
+- The three fields hold **PEM content** (`str` or `bytes`), **not file paths**. Read the files yourself.
+- `grpc_client_cert` and `grpc_client_key` go together: setting only one raises `ValueError` when the config is
+  built (and `get_secure_channel` refuses half a pair the same way). Neither set means plain server-authenticated TLS.
+- `use_secure_channel=False` with a config that carries a client certificate raises `ValueError` instead of silently
+  dropping the identity; a secure channel without `grpc_cert` raises `ValueError` too. No message renders a PEM.
+- The server certificate is verified against `grpc_cert`, and the host you connect to must match one of the
+  certificate's subject alternative names (SAN). When you connect by IP and the certificate has no IP SAN, tell gRPC
+  which name to check with the channel option `("grpc.ssl_target_name_override", "<name in the SAN>")`.
+
+In the examples, `Calls` / `Agents` are service interfaces built on `BaseServicesInterface` (see [Usage](#usage)),
+and `AsyncCalls` / `AsyncAgents` their `AsyncBaseServicesInterface` counterparts. One channel per service:
+
+```python
+from pathlib import Path
+
+from ondewo.utils.base_client_config import BaseClientConfig
+
+config = BaseClientConfig(
+    host="10.0.0.5",
+    port="50051",
+    grpc_cert=Path("certs/ca.pem").read_text(),
+    grpc_client_cert=Path("certs/client.pem").read_text(),  # leave both out for server-authenticated TLS
+    grpc_client_key=Path("certs/client.key").read_text(),
+)
+calls = Calls(
+    config=config,
+    use_secure_channel=True,
+    options={("grpc.ssl_target_name_override", "nlu.example.internal")},  # only when connecting by IP
+)
+```
+
+One shared channel (see [below](#one-connection-for-all-services-low-latency)) takes the same config:
+
+```python
+from ondewo.utils.base_services_interface import build_shared_channel
+
+channel = build_shared_channel(config, use_secure_channel=True, service_classes=(Calls, Agents))
+calls = Calls(config=config, use_secure_channel=True, grpc_channel=channel)
+agents = Agents(config=config, use_secure_channel=True, grpc_channel=channel)
+```
+
+The async interfaces (`AsyncBaseServicesInterface`, `ondewo.utils.async_base_services_interface.build_shared_channel`)
+take the same arguments (`AsyncCalls(config=config, use_secure_channel=True)` opens its own channel). Build them
+inside the running event loop that uses them:
+
+```python
+import asyncio
+
+from ondewo.utils.async_base_services_interface import build_shared_channel
+
+
+async def main() -> None:
+    channel = build_shared_channel(config, use_secure_channel=True, service_classes=(AsyncCalls, AsyncAgents))
+    calls = AsyncCalls(config=config, use_secure_channel=True, grpc_channel=channel)
+    agents = AsyncAgents(config=config, use_secure_channel=True, grpc_channel=channel)
+    ...
+    await channel.close()
+
+
+asyncio.run(main())
+```
+
+A test PKI with openssl
+-----------------------
+
+A CA, a server certificate with SANs, and a client certificate with the `clientAuth` extended key usage. For tests
+only: the keys are unencrypted.
+
+```bash
+openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 365 \
+  -subj "/CN=Test CA" -keyout ca.key -out ca.pem
+
+printf 'subjectAltName=DNS:localhost,IP:127.0.0.1\nextendedKeyUsage=serverAuth\n' > server.ext
+openssl req -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes \
+  -subj "/CN=localhost" -keyout server.key -out server.csr
+openssl x509 -req -in server.csr -CA ca.pem -CAkey ca.key -CAcreateserial -days 365 \
+  -extfile server.ext -out server.pem
+
+printf 'extendedKeyUsage=clientAuth\n' > client.ext
+openssl req -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes \
+  -subj "/CN=my-client" -keyout client.key -out client.csr
+openssl x509 -req -in client.csr -CA ca.pem -CAkey ca.key -CAcreateserial -days 365 \
+  -extfile client.ext -out client.pem
+
+chmod 600 *.key
+openssl verify -CAfile ca.pem server.pem client.pem
+```
+
+The client then uses `ca.pem` / `client.pem` / `client.key`; a server that requires client certificates uses
+`server.pem` / `server.key` and trusts `ca.pem` for its clients.
+
+TLS security notes
+------------------
+
+- `to_dict()` / `to_json()` write `grpc_client_key` **in clear text**. Treat any serialized config as a secret
+  (file mode `0600`, never commit it), or better keep the key out of it and load it from a file or secret store at
+  startup.
+- `repr(config)` leaves out `grpc_client_key`, but it still shows the other fields: do not log configs or their
+  serialized form.
+
+TLS troubleshooting
+-------------------
+
+The status code of a failed handshake is `UNAVAILABLE`; the cause is in the details (`grpc.RpcError.details()`):
+
+- **`CERTIFICATE_VERIFY_FAILED: unable to get local issuer certificate`** (inside "Tls handshake failed"): `grpc_cert`
+  is not the CA that issued the server certificate, or the server does not send its intermediate certificates.
+- **`Hostname Verification Check failed`** (older gRPC: `Peer name <host> is not in peer certificate`): the host you
+  connect to is not in the server certificate's SAN. Connect by a name in the SAN, add the SAN, or set
+  `grpc.ssl_target_name_override`.
+- **`Socket closed`** (or another `UNAVAILABLE`) against a server that requires client certificates: no client
+  certificate was presented, or one the server's CA did not issue. The server log names the reason (e.g.
+  `PEER_DID_NOT_RETURN_A_CERTIFICATE`). Set `grpc_client_cert` / `grpc_client_key`.
+- **`Failed to create security handshaker`**, with `Could not load any root certificate` in the gRPC log: `grpc_cert`
+  holds something that is not PEM, typically a file path. Pass `Path(...).read_text()` instead.
 
 gRPC retry policy
 -----------------

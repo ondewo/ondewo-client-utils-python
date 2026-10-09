@@ -16,7 +16,8 @@ Public building blocks (all under `ondewo/utils/`):
 - `base_services_interface.py` — `BaseServicesInterface` plus channel helpers (`get_secure_channel`,
   `_get_grpc_channel`, `build_shared_channel`, `MAX_MESSAGE_LENGTH`) and the constant gRPC channel options.
 - `async_base_services_interface.py` — `AsyncBaseServicesInterface`, the `grpc.aio` counterpart.
-- `base_client_config.py` — `BaseClientConfig`, a frozen stdlib dataclass config (`host`, `port`, `grpc_cert`) with
+- `base_client_config.py` — `BaseClientConfig`, a frozen stdlib dataclass config (`host`, `port`, `grpc_cert`,
+  `grpc_client_cert`, `grpc_client_key`) with
   `to_dict` / `from_dict` / `to_json` / `from_json` implemented on **orjson** (dataclasses-json and marshmallow are gone
   from the runtime tree; `tests/test_runtime_dependency_tree.py` pins it). A `str` cert is encoded to `bytes` in
   `__post_init__`; its encoder (kept under the `"dataclasses_json"` field-metadata key, as plain data, because
@@ -31,6 +32,22 @@ Public building blocks (all under `ondewo/utils/`):
   Not carried over (no ONDEWO config uses them): element coercion inside collection-typed fields (a `Tuple` field
   gets the JSON list as is), dataclasses-json `decoder` metadata, `NewType` unwrapping and its global config.
   Keep BaseClientConfig and BaseServicesContainer STDLIB dataclasses: every SDK subclasses them with `@dataclass`.
+  Enum values render as their value and non-`str` mapping keys as strings on BOTH JSON paths (orjson runs with
+  `OPT_NON_STR_KEYS`), as dataclasses-json did.
+
+### Mutual TLS (4.1.0)
+
+- `BaseClientConfig.grpc_client_cert` / `grpc_client_key` (PEM **content**, never a path; encoded and serialized like
+  `grpc_cert`) are both-or-neither: `__post_init__` refuses half a pair. `grpc_client_key` is `repr=False`, but
+  `to_dict` / `to_json` carry it in clear text (documented in README "TLS security notes").
+- `get_secure_channel` (sync and async) takes `client_cert` / `client_key` and repeats the both-or-neither check
+  BEFORE `grpc.ssl_channel_credentials`: grpc core does not raise on half a pair or an empty PEM, it CHECK-fails and
+  `abort()`s the whole process (exit 134). Empty on both (`b""` / `""`) means plain TLS (passed on as `None`). Keep
+  that guard; never let a caller-supplied identity reach grpc unchecked.
+- `use_secure_channel=False` with a client identity raises `ValueError` instead of silently dropping it. No message
+  renders a PEM or key.
+- Real handshakes (sync and `grpc.aio`, per-service and `build_shared_channel`, CRLF PEMs) are pinned in
+  `tests/test_mutual_tls.py` with an in-test PKI. User-facing docs: README "TLS, mutual TLS and certificates".
 - `base_service_container.py` — `BaseServicesContainer`, the dataclass that concrete clients subclass to enumerate
   their services.
 - `helpers.py` — `get_struct_from_dict`, `get_attr_recursive`, `set_attr_recursive`.

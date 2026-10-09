@@ -405,6 +405,26 @@ def test_non_json_leaves_are_rendered_like_dataclasses_json() -> None:
     assert json.loads(holder.to_json(indent=1)) == expected
 
 
+def test_enum_field_serializes_as_its_value_on_every_json_path() -> None:
+    """Verify an enum renders as its value on every JSON path, as dataclasses-json did, and round-trips."""
+    config: _OddFields = _OddFields(host="h", port="1", color=_Color.RED)
+    assert json.loads(config.to_json())["color"] == "red"
+    assert json.loads(config.to_json(indent=2))["color"] == "red"
+    assert config.to_dict(encode_json=True)["color"] == "red"
+    assert _OddFields.from_json(config.to_json(indent=2)).color is _Color.RED
+
+
+def test_non_str_mapping_keys_render_identically_on_both_json_paths() -> None:
+    """Verify non-``str`` mapping keys are stringified by orjson exactly as by ``json.dumps``."""
+
+    @dataclass(frozen=True)
+    class Holder(BaseClientConfig):
+        names: Dict[int, str] = field(default_factory=lambda: {1: "a"})
+
+    holder: Holder = Holder(host="h", port="1")
+    assert json.loads(holder.to_json())["names"] == json.loads(holder.to_json(indent=1))["names"] == {"1": "a"}
+
+
 def test_a_value_json_cannot_represent_raises_type_error_naming_the_type() -> None:
     """Verify an unrepresentable leaf fails on every path, naming the type and never the value."""
 

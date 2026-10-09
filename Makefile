@@ -204,9 +204,8 @@ run_release_with_devops: ## Load credentials from the devops-accounts repo and r
 		&& set +a \
 		&& $(MAKE) release
 
-spc: ## Checks if the Release Branch, Tag and Pypi version already exist
-	$(eval filtered_branches:= $(shell git branch --all | grep "release/${ONDEWO_PACKAGE_VERSION}"))
-	$(eval filtered_tags:= $(shell git tag --list | grep "${ONDEWO_PACKAGE_VERSION}"))
-	$(eval pyproject_version:= $(shell cat pyproject.toml | grep "version"))
+spc: ## Checks if the Release Branch and Tag already exist
+	$(eval filtered_branches:= $(shell git branch --all --list "release/${ONDEWO_PACKAGE_VERSION}" "origin/release/${ONDEWO_PACKAGE_VERSION}"))
+	$(eval filtered_tags:= $(shell git tag --list "${ONDEWO_PACKAGE_VERSION}"))
 	@if test "$(filtered_branches)" != ""; then echo "-- Test 1: Branch exists!!" & exit 1; else echo "-- Test 1: Branch is fine";fi
 	@if test "$(filtered_tags)" != ""; then echo "-- Test 2: Tag exists!!" & exit 1; else echo "-- Test 2: Tag is fine";fi

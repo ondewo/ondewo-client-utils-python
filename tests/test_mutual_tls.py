@@ -431,3 +431,127 @@ class TestARealAsyncHandshake:
     async def test_tls_only_server_serves_a_client_without_a_leaf(async_server: Any, pki: Pki) -> None:
         port: int = await async_server(pki, False)
         assert await _async_ping(_config(port, pki)) == b"ping"
+
+
+def _crlf(pem: bytes) -> bytes:
+    return pem.replace(b"\n", b"\r\n")
+
+
+@pytest.mark.parametrize("module", [bsi, absi], ids=["sync", "async"])
+class TestGetSecureChannelValidatesTheIdentity:
+    @staticmethod
+    @pytest.mark.parametrize(
+        "client_cert, client_key",
+        [
+            (b"SECRETCERT", None),
+            (None, b"SECRETKEY"),
+            (b"", b"SECRETKEY"),
+            (b"SECRETCERT", b""),
+            ("SECRETCERT", None),
+            (None, "SECRETKEY"),
+        ],
+        ids=["cert-only", "key-only", "empty-cert", "empty-key", "str-cert-only", "str-key-only"],
+    )
+    def test_get_secure_channel_refuses_half_a_client_identity(
+        module: Any,
+        client_cert: Optional[Any],
+        client_key: Optional[Any],
+    ) -> None:
+        """Half an identity would make grpc core CHECK-fail and abort() the process; it raises instead."""
+        with mock.patch.object(module.grpc, "ssl_channel_credentials") as credentials:
+            with pytest.raises(ValueError, match="set both to use mutual TLS, or neither") as refusal:
+                module.get_secure_channel(host="h:1", cert=b"ca", client_cert=client_cert, client_key=client_key)
+        credentials.assert_not_called()
+        assert "SECRETCERT" not in str(refusal.value)
+        assert "SECRETKEY" not in str(refusal.value)
+
+    @staticmethod
+    @pytest.mark.parametrize("empty", [b"", ""], ids=["bytes", "str"])
+    def test_an_empty_identity_on_both_is_plain_tls(module: Any, empty: Any) -> None:
+        with (
+            mock.patch.object(module.grpc, "ssl_channel_credentials") as credentials,
+            mock.patch.object(module.grpc if module is bsi else module.grpc.aio, "secure_channel"),
+        ):
+            module.get_secure_channel(host="h:1", cert=b"ca", client_cert=empty, client_key=empty)
+        credentials.assert_called_once_with(root_certificates=b"ca", private_key=None, certificate_chain=None)
+
+
+class TestARealHandshakeThroughTheSharedChannel:
+    @staticmethod
+    def test_an_empty_identity_is_served_by_a_tls_only_server(
+        sync_server: Callable[[Pki, bool], int],
+        pki: Pki,
+    ) -> None:
+        port: int = sync_server(pki, False)
+        channel: grpc.Channel = bsi.get_secure_channel(
+            host=f"{SERVER_NAME}:{port}", cert=pki.ca_cert, options=CLIENT_OPTIONS, client_cert=b"", client_key=b""
+        )
+        try:
+            assert channel.unary_unary(METHOD)(b"ping", timeout=TIMEOUT_IN_S) == b"ping"
+        finally:
+            channel.close()
+
+    @staticmethod
+    @pytest.mark.parametrize("with_leaf", [True, False], ids=["with-leaf", "without-leaf"])
+    def test_sync_shared_channel_against_a_mutual_tls_server(
+        sync_server: Callable[[Pki, bool], int],
+        pki: Pki,
+        with_leaf: bool,
+    ) -> None:
+        port: int = sync_server(pki, True)
+        channel: grpc.Channel = bsi.build_shared_channel(
+            config=_config(port, pki, client=pki if with_leaf else None),
+            use_secure_channel=True,
+            service_classes=(),
+            options={("grpc.enable_retries", 0)},
+        )
+        try:
+            if with_leaf:
+                assert channel.unary_unary(METHOD)(b"ping", timeout=TIMEOUT_IN_S) == b"ping"
+            else:
+                with pytest.raises(grpc.RpcError) as refusal:
+                    channel.unary_unary(METHOD)(b"ping", timeout=TIMEOUT_IN_S)
+                assert refusal.value.code() is grpc.StatusCode.UNAVAILABLE  # type: ignore[attr-defined]
+        finally:
+            channel.close()
+
+    @staticmethod
+    @pytest.mark.parametrize("with_leaf", [True, False], ids=["with-leaf", "without-leaf"])
+    async def test_async_shared_channel_against_a_mutual_tls_server(
+        async_server: Any,
+        pki: Pki,
+        with_leaf: bool,
+    ) -> None:
+        port: int = await async_server(pki, True)
+        # Built inside the running loop: a grpc.aio channel binds to the loop it is created on.
+        channel: grpc.aio.Channel = absi.build_shared_channel(
+            config=_config(port, pki, client=pki if with_leaf else None),
+            use_secure_channel=True,
+            service_classes=(),
+            options={("grpc.enable_retries", 0)},
+        )
+        try:
+            if with_leaf:
+                assert await channel.unary_unary(METHOD)(b"ping", timeout=TIMEOUT_IN_S) == b"ping"
+            else:
+                with pytest.raises(grpc.aio.AioRpcError) as refusal:
+                    await channel.unary_unary(METHOD)(b"ping", timeout=TIMEOUT_IN_S)
+                assert refusal.value.code() is grpc.StatusCode.UNAVAILABLE
+        finally:
+            await channel.close()
+
+    @staticmethod
+    def test_crlf_terminated_pems_complete_the_mutual_tls_handshake(
+        sync_server: Callable[[Pki, bool], int],
+        pki: Pki,
+    ) -> None:
+        """PEMs saved on Windows (CRLF line endings) are accepted for the CA, the client leaf and its key."""
+        port: int = sync_server(pki, True)
+        config: BaseClientConfig = BaseClientConfig(
+            host=SERVER_NAME,
+            port=str(port),
+            grpc_cert=_crlf(pki.ca_cert).decode(),
+            grpc_client_cert=_crlf(pki.client_cert).decode(),
+            grpc_client_key=_crlf(pki.client_key).decode(),
+        )
+        assert _ping(config) == b"ping"

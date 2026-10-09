@@ -80,13 +80,15 @@ def _json_default(value: Any) -> Any:
 
     Returns:
         Any:
-            A ``list`` for a collection (``bytes`` become their byte values, as before). Mappings never
-            get here: :func:`_to_plain` has already turned them into dicts.
+            An ``Enum``'s value, or a ``list`` for a collection (``bytes`` become their byte values, as
+            before). Mappings never get here: :func:`_to_plain` has already turned them into dicts.
 
     Raises:
         TypeError:
             If the value is of any other type. The message names the type, never the value.
     """
+    if isinstance(value, Enum):
+        return value.value
     if isinstance(value, Collection):
         return list(value)
     raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
@@ -304,17 +306,21 @@ class BaseClientConfig:
         port (str):
             Port of the ONDEWO QA services host (e.g., '50444', etc.)
         grpc_cert (Optional[str]):
-            The PEM root certificate required for setting up a secure gRPC channel. This field must be
+            The PEM CONTENT (``str`` or ``bytes``, e.g. ``Path("ca.pem").read_text()``), not a file path,
+            of the root certificate required for setting up a secure gRPC channel. This field must be
             set unless the client is instantiated using `use_secure_channel=False` (not recommended). A
             ``str`` is encoded to ``bytes`` on construction and ``bytes`` are kept as they are;
             ``to_dict`` / ``to_json`` carry the PEM as text, so ``from_dict`` / ``from_json`` and
             ``dataclasses.replace`` give back an equal config.
         grpc_client_cert (Optional[str]):
-            The PEM client certificate chain presented to a server that requires mutual TLS. Set it
-            together with ``grpc_client_key``, or neither: without both the channel is plain TLS and the
-            server asks for no client certificate. Encoded and serialized like ``grpc_cert``.
+            The PEM CONTENT (``str`` or ``bytes``), not a file path, of the client certificate chain
+            presented to a server that requires mutual TLS. Set it together with ``grpc_client_key``, or
+            neither: without both the channel is plain TLS and the server asks for no client certificate.
+            Encoded and serialized like ``grpc_cert``.
         grpc_client_key (Optional[str]):
-            The PEM private key of ``grpc_client_cert``. Encoded and serialized like ``grpc_cert``.
+            The PEM CONTENT (``str`` or ``bytes``), not a file path, of the private key of
+            ``grpc_client_cert``. Encoded and serialized like ``grpc_cert``: ``repr`` hides it, but
+            ``to_dict`` / ``to_json`` carry it in clear text, so treat a serialized config as a secret.
     """
 
     host: str
@@ -379,8 +385,8 @@ class BaseClientConfig:
 
         Args:
             encode_json (bool):
-                Also render values JSON has no type for (``bytes`` and other collections become
-                lists). Defaults to ``False``.
+                Also render values JSON has no type for (an ``Enum`` becomes its value, ``bytes``
+                and other collections become lists). Defaults to ``False``.
 
         Returns:
             Dict[str, Any]:
@@ -409,7 +415,8 @@ class BaseClientConfig:
         """
         if kwargs:
             return json.dumps(self.to_dict(), cls=_JSONEncoder, **kwargs)
-        return orjson.dumps(self.to_dict(), default=_json_default).decode()
+        # OPT_NON_STR_KEYS: stringify e.g. int mapping keys, as json.dumps (and dataclasses-json) does.
+        return orjson.dumps(self.to_dict(), default=_json_default, option=orjson.OPT_NON_STR_KEYS).decode()
 
     @classmethod
     def from_dict(cls: Type[TBaseClientConfig], kvs: Any, *, infer_missing: bool = False) -> TBaseClientConfig:

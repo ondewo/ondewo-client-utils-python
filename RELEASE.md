@@ -13,7 +13,16 @@
 
 * Setting only one of `grpc_client_cert` / `grpc_client_key` raises `ValueError`, as does a plaintext channel (`use_secure_channel=False`) for a config that carries a client identity, which would otherwise silently send it nowhere. Neither message renders a PEM
 * `grpc_client_key` is left out of the config's `repr`, so a logged or traceback-printed config never shows the private key
-* Real handshake tests (sync and `grpc.aio`) pin both modes: mutual TLS serves a client leaf from the server's CA and refuses none or a foreign one, a TLS-only server serves clients with and without a leaf, and server verification is unchanged
+* Real handshake tests (sync and `grpc.aio`) pin both modes: mutual TLS serves a client leaf from the server's CA and refuses none or a foreign one, a TLS-only server serves clients with and without a leaf, and server verification is unchanged. They also cover `build_shared_channel` with a client identity and CRLF-terminated PEMs
+* `get_secure_channel` (sync and async) refuses half a `client_cert` / `client_key` pair, or one empty PEM, with `ValueError`. grpc core would otherwise abort the whole Python process. An empty pair (`b""` / `""`) is plain TLS
+* The wheel ships `py.typed`, so downstream mypy type-checks against `ondewo.utils` instead of treating it as untyped
+* README: a new "TLS, mutual TLS and certificates" guide covers plaintext, TLS and mutual TLS; PEM content vs file paths; `grpc.ssl_target_name_override`; a test PKI with openssl; security notes (`to_json` carries the private key in clear text); and troubleshooting common handshake errors. CONTRIBUTING.md now describes the real development workflow
+* The release guard (`make spc`) matches the release branch and tag exactly instead of by substring
+
+### Bug Fixes
+
+* `BaseClientConfig.to_json(**kwargs)` and `to_dict(encode_json=True)` rendered an `Enum` field with `TypeError`; they now write its value, like bare `to_json()` and dataclasses-json
+* Bare `to_json()` raised on a mapping with non-`str` keys (e.g. `Dict[int, str]`); it now stringifies them like `to_json(**kwargs)` and dataclasses-json
 
 *****************
 

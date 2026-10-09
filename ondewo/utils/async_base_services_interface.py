@@ -117,16 +117,33 @@ def get_secure_channel(
             supplies ``bytes``.
         options (Optional[List[Tuple[str, Any]]]):
             Optional list of gRPC channel options as (key, value) tuples.
+        client_cert (Optional[Union[str, bytes]]):
+            PEM client certificate chain to present for mutual TLS, together with ``client_key``.
+            Defaults to ``None`` (no client certificate: plain TLS).
+        client_key (Optional[Union[str, bytes]]):
+            PEM private key of ``client_cert``. Defaults to ``None``.
 
     Returns:
         grpc.aio.Channel:
             A secure asynchronous gRPC channel connected to the target host.
+
+    Raises:
+        ValueError:
+            If exactly one of ``client_cert`` and ``client_key`` is set (an empty PEM counts as unset): a
+            client certificate cannot be presented without its key, nor a key without its certificate.
     """
+    # Half an identity makes grpc core CHECK-fail and abort() the whole process; refuse it here.
+    if bool(client_cert) != bool(client_key):
+        raise ValueError(
+            f"get_secure_channel for {host} received only one of client_cert and client_key; "
+            "set both to use mutual TLS, or neither."
+        )
     root_certificates: bytes = cert.encode() if isinstance(cert, str) else cert
+    # Empty PEMs (b"" / "") mean no client identity: pass None so the channel is plain TLS.
     credentials: grpc.ChannelCredentials = grpc.ssl_channel_credentials(
         root_certificates=root_certificates,
-        private_key=client_key.encode() if isinstance(client_key, str) else client_key,
-        certificate_chain=client_cert.encode() if isinstance(client_cert, str) else client_cert,
+        private_key=(client_key.encode() if isinstance(client_key, str) else client_key) or None,
+        certificate_chain=(client_cert.encode() if isinstance(client_cert, str) else client_cert) or None,
     )
     return grpc.aio.secure_channel(
         target=host,
@@ -158,7 +175,8 @@ def _get_grpc_channel(
 
     Raises:
         ValueError:
-            If a secure channel is requested but the config has no gRPC certificate.
+            If a secure channel is requested but the config has no gRPC certificate, or a plaintext channel
+            is requested for a config that carries a client certificate.
     """
     if not use_secure_channel:
         if config.grpc_client_cert:
@@ -217,7 +235,8 @@ def build_shared_channel(
 
     Raises:
         ValueError:
-            If a secure channel is requested but the config has no gRPC certificate.
+            If a secure channel is requested but the config has no gRPC certificate, or a plaintext channel
+            is requested for a config that carries a client certificate.
     """
     merged_options: Dict[str, Any] = dict(_DEFAULT_GRPC_OPTIONS)
     merged_options["grpc.service_config"] = service_config_json_for_classes(tuple(service_classes))

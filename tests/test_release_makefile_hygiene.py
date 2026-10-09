@@ -72,3 +72,19 @@ def test_the_release_image_pins_uv() -> None:
     uv_copies: List[str] = re.findall(r"ghcr\.io/astral-sh/uv:(\S+)", DOCKERFILE_UTILS)
     assert uv_copies
     assert all(tag != "latest" and re.fullmatch(r"\d+\.\d+\.\d+", tag) for tag in uv_copies)
+
+
+def test_the_release_guard_matches_the_branch_and_tag_exactly() -> None:
+    """
+    Verify ``spc`` asks git for the exact release branch and tag, not a ``grep`` substring.
+
+    ``grep "4.1.0"`` also matches ``14.1.0``, ``4.1.0rc1`` and ``release/4.1.01``, so the guard
+    would refuse a release whose version merely appears inside an older one.
+    """
+    recipe: str = MAKEFILE.split("\nspc:", 1)[1].split("\n\n", 1)[0]
+    assert "grep" not in recipe
+    assert 'git tag --list "${ONDEWO_PACKAGE_VERSION}"' in recipe
+    assert (
+        'git branch --all --list "release/${ONDEWO_PACKAGE_VERSION}" "origin/release/${ONDEWO_PACKAGE_VERSION}"'
+        in recipe
+    )
