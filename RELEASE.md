@@ -167,6 +167,8 @@
 
 * Use latest version of dataclasses-json and regex
 
+*****************
+
 ## Release ONDEWO CLIENT UTILS PYTHON 0.1.0
 
 ### New Features
