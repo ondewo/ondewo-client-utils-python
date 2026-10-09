@@ -28,6 +28,7 @@ from typing import (
 )
 from unittest import mock
 
+import asyncio
 import pytest
 
 from ondewo.utils.async_base_client import AsyncBaseClient
@@ -272,6 +273,27 @@ async def test_a_missing_channel_in_an_earlier_field_still_closes_later_channels
     client: _AsyncClient = _client_with(_TwoServices(first=None, second=second))
     with pytest.raises(AttributeError, match="grpc_channel"):
         await client.disconnect()
+    second.grpc_channel.close.assert_awaited_once_with(grace=None)
+    assert client.services is None
+
+
+async def test_a_cancelled_disconnect_still_closes_every_channel() -> None:
+    """Verify a cancellation during one close (e.g. ``asyncio.wait_for``) closes the rest, then propagates."""
+    started: asyncio.Event = asyncio.Event()
+
+    async def _hang(grace: Any = None) -> None:
+        started.set()
+        await asyncio.Event().wait()
+
+    first: Any = _make_service()
+    first.grpc_channel.close.side_effect = _hang
+    second: Any = _make_service()
+    client: _AsyncClient = _client_with(_TwoServices(first=first, second=second))
+    task: asyncio.Task = asyncio.ensure_future(client.disconnect())
+    await started.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
     second.grpc_channel.close.assert_awaited_once_with(grace=None)
     assert client.services is None
 

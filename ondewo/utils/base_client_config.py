@@ -14,6 +14,7 @@
 
 """Data class holding the host, port and gRPC certificate configuration for ONDEWO gRPC clients."""
 
+import ipaddress
 import json
 import warnings
 from collections.abc import (
@@ -371,11 +372,19 @@ class BaseClientConfig:
         """
         Return the host and port combined into a single connection string.
 
+        An IPv6 literal is bracketed (``"::1"`` becomes ``"[::1]:50051"``): gRPC cannot resolve
+        ``"::1:50051"``. A host that is already bracketed or carries a scheme (``"ipv6:[::1]"``,
+        ``"dns:..."``, ``"unix:..."``) is left as it is.
+
         Returns:
             str:
                 The host and port in the format ``"host:port"``.
         """
-        return f"{self.host}:{self.port}"
+        try:
+            is_ipv6: bool = ipaddress.ip_address(self.host).version == 6
+        except ValueError:
+            is_ipv6 = False
+        return f"[{self.host}]:{self.port}" if is_ipv6 else f"{self.host}:{self.port}"
 
     def to_dict(self, encode_json: bool = False) -> Dict[str, Any]:
         """

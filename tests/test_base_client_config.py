@@ -144,6 +144,47 @@ class TestBaseClientConfig:
         """Verify that ``host_and_port`` joins host and port with a colon."""
         assert BaseClientConfig(host="localhost", port="50051").host_and_port == "localhost:50051"
 
+    @pytest.mark.parametrize(
+        "host, expected",
+        [
+            ("::1", "[::1]:50051"),
+            ("2001:db8::7", "[2001:db8::7]:50051"),
+            ("fe80::1%eth0", "[fe80::1%eth0]:50051"),
+            ("[::1]", "[::1]:50051"),
+            ("ipv6:[::1]", "ipv6:[::1]:50051"),
+            ("127.0.0.1", "127.0.0.1:50051"),
+            ("localhost", "localhost:50051"),
+            ("", ":50051"),
+        ],
+    )
+    def test_an_ipv6_literal_host_is_bracketed(self, host: str, expected: str) -> None:
+        """Verify a bare IPv6 literal is bracketed and every other host is left as it is."""
+        assert BaseClientConfig(host=host, port="50051").host_and_port == expected
+
+    def test_an_ipv6_host_reaches_a_loopback_server(self) -> None:
+        """Verify ``host="::1"`` really connects (``"::1:<port>"`` failed with "Misformatted domain name")."""
+        import socket
+        from concurrent import futures
+
+        import grpc
+
+        if not socket.has_ipv6:  # pragma: no cover - depends on the host
+            pytest.skip("no IPv6 on this host")
+        server: grpc.Server = grpc.server(futures.ThreadPoolExecutor(max_workers=1))
+        try:
+            port: int = server.add_insecure_port("[::1]:0")
+        except RuntimeError:  # pragma: no cover - depends on the host
+            pytest.skip("cannot bind [::1]")
+        server.start()
+        config: BaseClientConfig = BaseClientConfig(host="::1", port=str(port))
+        try:
+            with grpc.insecure_channel(config.host_and_port) as channel:
+                with pytest.raises(grpc.RpcError) as error:
+                    channel.unary_unary("/probe.Probe/Ping")(b"", timeout=5)
+            assert error.value.code() is grpc.StatusCode.UNIMPLEMENTED
+        finally:
+            server.stop(None)
+
     def test_cert_none_stays_none(self) -> None:
         """Verify that an unset ``grpc_cert`` remains ``None`` after init."""
         assert BaseClientConfig(host="localhost", port="50051").grpc_cert is None

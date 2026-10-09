@@ -126,8 +126,9 @@ class BaseClient(ABC):
 
         Every field of the services dataclass is visited, inherited ones included, and a channel
         shared by several services (see ``build_shared_channel``) is closed exactly once. A
-        ``close()`` that raises does not leave the remaining channels open: every channel is
-        attempted, ``services`` is cleared regardless, and the first error is re-raised.
+        ``close()`` that raises, or a cancellation / interrupt during one, does not leave the
+        remaining channels open: every channel is attempted, ``services`` is cleared regardless,
+        and the first error (``CancelledError`` included) is re-raised.
 
         Raises:
             AttributeError:
@@ -154,7 +155,9 @@ class BaseClient(ABC):
                         continue
                     closed.add(id(channel))
                     channel.close()
-                except Exception as error:
+                # BaseException: a CancelledError (asyncio.wait_for, shutdown) or KeyboardInterrupt
+                # must not leave the remaining channels open; it is re-raised after the loop.
+                except BaseException as error:
                     first_error = first_error or error
         finally:
             self.services = None

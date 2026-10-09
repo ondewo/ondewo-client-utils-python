@@ -18,17 +18,18 @@ import functools
 from typing import (
     Any,
     Dict,
+    Optional,
 )
 
 from google.protobuf.struct_pb2 import Struct
 
 
-def get_struct_from_dict(d: Dict) -> Struct:  # type: ignore
+def get_struct_from_dict(d: Optional[Dict[str, Any]]) -> Struct:  # type: ignore
     """
     Create a protobuf Struct from a dictionary.
 
     Args:
-        d (Dict):
+        d (Optional[Dict[str, Any]]):
             The dictionary whose key/value pairs populate the resulting ``Struct``.
             May be ``None``, in which case an empty ``Struct`` is returned.
 

@@ -284,6 +284,18 @@ def test_a_missing_channel_in_an_earlier_field_still_closes_later_channels(confi
     assert client.services is None
 
 
+def test_an_interrupt_during_one_close_still_closes_the_rest(config: BaseClientConfig) -> None:
+    """Verify a ``KeyboardInterrupt`` in one close leaves no later channel open and still propagates."""
+    first: Any = _make_service()
+    first.grpc_channel.close.side_effect = KeyboardInterrupt
+    second: Any = _make_service()
+    client: _Client = _client_with(_TwoServices(first=first, second=second), config)
+    with pytest.raises(KeyboardInterrupt):
+        client.disconnect()
+    second.grpc_channel.close.assert_called_once_with()
+    assert client.services is None
+
+
 def test_a_shared_channel_is_closed_once(config: BaseClientConfig) -> None:
     """Verify a channel held by two services is closed exactly once."""
     shared: Any = _make_service()

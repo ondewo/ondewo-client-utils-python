@@ -68,9 +68,19 @@ _DEFAULT_GRPC_OPTIONS: Dict[str, Any] = {
     # tears down the shared connection (measured: UNAVAILABLE after ~50 s at a 10 s keepalive
     # with 0 = unlimited; the same silent stream completed with 2).
     "grpc.keepalive_time_ms": 30000,
-    "grpc.keepalive_timeout_ms": 60000,
+    # How long an unanswered ping may take before the connection counts as dead is set by
+    # http2.ping_timeout_ms (grpc-core default 60 s), not by keepalive_timeout_ms, which grpc
+    # also applies as the socket's TCP_USER_TIMEOUT. Both at 20 s (gRPC's keepalive default):
+    # a silently dropped connection is detected in ~40 s instead of ~85 s (measured with a
+    # proxy that stops forwarding).
+    "grpc.keepalive_timeout_ms": 20000,
+    "grpc.http2.ping_timeout_ms": 20000,
     "grpc.keepalive_permit_without_calls": False,
     "grpc.http2.max_pings_without_data": 2,
+    # Cap the reconnect backoff (grpc-core default 120 s, x1.6 from 1 s): after a 30 s outage
+    # the first successful call came 10-15 s after the server was back, after 120 s up to
+    # 65 s; with a 5 s cap 0.3-3.8 s. Costs one connect attempt per 5 s while a server is down.
+    "grpc.max_reconnect_backoff_ms": 5000,
     # "grpc.dns_enable_srv_queries" is deliberately NOT set: it only discovers deprecated grpclb
     # balancers, which no ONDEWO deployment uses, and cost ~14 ms per channel (median channel
     # creation + first unary call to 127.0.0.1: 15.9 ms with it, 1.4 ms without). A caller

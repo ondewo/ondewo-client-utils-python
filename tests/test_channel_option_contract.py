@@ -130,3 +130,33 @@ def test_the_default_options_are_built_once_per_class(interface: Tuple[Any, type
     first: List[Tuple[str, Any]] = _options_passed(module, service_class)
     second: List[Tuple[str, Any]] = _options_passed(module, service_class)
     assert first is second
+
+
+@pytest.mark.parametrize("interface", INTERFACES)
+def test_the_recovery_and_dead_connection_defaults_are_pinned(interface: Tuple[Any, type]) -> None:
+    """
+    Verify the measured reconnect and dead-connection settings, on both interfaces.
+
+    ``max_reconnect_backoff_ms`` 5 s (gRPC default 120 s: up to ~65 s to recover after an outage),
+    ``http2.ping_timeout_ms`` and ``keepalive_timeout_ms`` 20 s (detect a dropped connection in
+    ~40 s instead of ~85 s); the GOAWAY-safe keepalive settings stay as they were.
+    """
+    module, _ = interface
+    assert {
+        key: module._DEFAULT_GRPC_OPTIONS[key]
+        for key in (
+            "grpc.max_reconnect_backoff_ms",
+            "grpc.http2.ping_timeout_ms",
+            "grpc.keepalive_timeout_ms",
+            "grpc.keepalive_time_ms",
+            "grpc.keepalive_permit_without_calls",
+            "grpc.http2.max_pings_without_data",
+        )
+    } == {
+        "grpc.max_reconnect_backoff_ms": 5000,
+        "grpc.http2.ping_timeout_ms": 20000,
+        "grpc.keepalive_timeout_ms": 20000,
+        "grpc.keepalive_time_ms": 30000,
+        "grpc.keepalive_permit_without_calls": False,
+        "grpc.http2.max_pings_without_data": 2,
+    }
