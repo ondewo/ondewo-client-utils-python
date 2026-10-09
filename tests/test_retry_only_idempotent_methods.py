@@ -40,9 +40,12 @@ import pytest
 
 from ondewo.utils import base_services_interface as bsi
 from ondewo.utils.async_base_services_interface import AsyncBaseServicesInterface
-from ondewo.utils.base_client_config import BaseClientConfig
 from ondewo.utils.base_services_interface import BaseServicesInterface
-from tests.conftest import RETRY_TEST_SERVICE
+from tests.conftest import (
+    CALL_TIMEOUT_IN_S,
+    RETRY_TEST_SERVICE,
+    local_config,
+)
 
 NON_IDEMPOTENT_METHODS: List[str] = ["StartCallers", "CreateCaller", "DeleteCaller", "Getaway"]
 READ_METHODS: List[str] = ["ListCallers", "GetCaller", "BatchGetCallers", "Ping"]
@@ -56,7 +59,6 @@ RETRIED_FOR_IDEMPOTENT: List[str] = [
     "ABORTED",
     "CANCELLED",
 ]
-NEVER_RETRIED_FOR_NON_IDEMPOTENT: List[str] = RETRIED_FOR_IDEMPOTENT + ["NOT_FOUND", "DATA_LOSS"]
 
 
 def _service_class(module: ModuleType, base: type) -> type:
@@ -76,24 +78,20 @@ def _service_class(module: ModuleType, base: type) -> type:
     return type("Calls", (base,), {"__module__": module.__name__, "stub": property(lambda self: None)})
 
 
-def _service_config_of(service_class: type, options: Optional[Any] = None) -> Dict[str, Any]:
+def _service_config_of(service_class: type) -> Dict[str, Any]:
     """
     Return the parsed gRPC service config a service interface opens its channel with.
 
     Args:
         service_class (type):
             A concrete synchronous service-interface class.
-        options (Optional[Any]):
-            Channel option overrides passed to the constructor. Defaults to ``None``.
 
     Returns:
         Dict[str, Any]:
             The parsed ``grpc.service_config`` channel option.
     """
     with mock.patch.object(bsi, "_get_grpc_channel") as get_channel:
-        service_class(
-            config=BaseClientConfig(host="localhost", port="50051"), use_secure_channel=False, options=options
-        )
+        service_class(config=local_config(), use_secure_channel=False)
     channel_options: Dict[str, Any] = dict(get_channel.call_args.kwargs["options"])
     service_config: Dict[str, Any] = json.loads(channel_options["grpc.service_config"])
     return service_config
@@ -148,15 +146,17 @@ def _retried_codes(service_config: Dict[str, Any], method: str) -> List[str]:
 
 
 @pytest.mark.parametrize("method", NON_IDEMPOTENT_METHODS)
-@pytest.mark.parametrize("code", NEVER_RETRIED_FOR_NON_IDEMPOTENT)
-def test_a_non_idempotent_method_is_never_re_sent(
-    retry_test_service_module: ModuleType, method: str, code: str
-) -> None:
-    """Verify a mutation is not re-sent on any status, UNAVAILABLE included (the #115 GOAWAY case)."""
+def test_a_non_idempotent_method_gets_no_retry_policy(retry_test_service_module: ModuleType, method: str) -> None:
+    """
+    Verify a mutation resolves to NO retry policy, so no status re-sends it (UNAVAILABLE: the #115 GOAWAY case).
+
+    Stronger than checking a list of codes: a policy with any code (or a hedging policy) would fail here.
+    """
     service_config: Dict[str, Any] = _service_config_of(
         _service_class(retry_test_service_module, BaseServicesInterface)
     )
-    assert code not in _retried_codes(service_config, method)
+    assert _retry_policy(service_config, method) is None
+    assert _retried_codes(service_config, method) == []
 
 
 @pytest.mark.parametrize("method", READ_METHODS + DECLARED_IDEMPOTENT_METHODS)
@@ -168,16 +168,6 @@ def test_an_idempotent_method_is_retried_on_the_broad_set(retry_test_service_mod
     retried: List[str] = _retried_codes(service_config, method)
     assert sorted(retried) == sorted(RETRIED_FOR_IDEMPOTENT)
     assert "NOT_FOUND" not in retried and "DATA_LOSS" not in retried
-
-
-def test_a_caller_supplied_service_config_still_wins(retry_test_service_module: ModuleType) -> None:
-    """Verify ``("grpc.service_config", ...)`` in the options replaces the default policy."""
-    own_config: Dict[str, Any] = {"methodConfig": [{"name": [{}], "timeout": "1s"}]}
-    service_config: Dict[str, Any] = _service_config_of(
-        _service_class(retry_test_service_module, BaseServicesInterface),
-        options={("grpc.service_config", json.dumps(own_config))},
-    )
-    assert service_config == own_config
 
 
 # region end to end: a real in-process gRPC server counting how often each handler runs
@@ -235,11 +225,13 @@ def test_a_failing_non_idempotent_rpc_runs_exactly_once(
     port, invocations, script = counting_server
     script["StartCallers"] = [status] * 10
     service: Any = _service_class(retry_test_service_module, BaseServicesInterface)(
-        config=BaseClientConfig(host="127.0.0.1", port=port), use_secure_channel=False
+        config=local_config(host="127.0.0.1", port=port), use_secure_channel=False
     )
-    with pytest.raises(grpc.RpcError) as raised:
-        service.grpc_channel.unary_unary(f"/{RETRY_TEST_SERVICE}/StartCallers")(b"", timeout=10)
-    service.grpc_channel.close()
+    try:
+        with pytest.raises(grpc.RpcError) as raised:
+            service.grpc_channel.unary_unary(f"/{RETRY_TEST_SERVICE}/StartCallers")(b"", timeout=CALL_TIMEOUT_IN_S)
+    finally:
+        service.grpc_channel.close()
     assert raised.value.code() == status
     assert len(invocations["StartCallers"]) == 1
 
@@ -252,10 +244,15 @@ def test_an_idempotent_rpc_is_retried_until_it_succeeds(
     port, invocations, script = counting_server
     script["ListCallers"] = [grpc.StatusCode.UNAVAILABLE]
     service: Any = _service_class(retry_test_service_module, BaseServicesInterface)(
-        config=BaseClientConfig(host="127.0.0.1", port=port), use_secure_channel=False
+        config=local_config(host="127.0.0.1", port=port), use_secure_channel=False
     )
-    assert service.grpc_channel.unary_unary(f"/{RETRY_TEST_SERVICE}/ListCallers")(b"", timeout=10) == b""
-    service.grpc_channel.close()
+    try:
+        assert (
+            service.grpc_channel.unary_unary(f"/{RETRY_TEST_SERVICE}/ListCallers")(b"", timeout=CALL_TIMEOUT_IN_S)
+            == b""
+        )
+    finally:
+        service.grpc_channel.close()
     assert len(invocations["ListCallers"]) == 2
 
 
@@ -268,12 +265,19 @@ async def test_the_async_interface_retries_idempotent_methods_only(
     script["StartCallers"] = [grpc.StatusCode.INTERNAL] * 10
     script["ListCallers"] = [grpc.StatusCode.UNAVAILABLE]
     service: Any = _service_class(retry_test_service_module, AsyncBaseServicesInterface)(
-        config=BaseClientConfig(host="127.0.0.1", port=port), use_secure_channel=False
+        config=local_config(host="127.0.0.1", port=port), use_secure_channel=False
     )
-    with pytest.raises(grpc.aio.AioRpcError):
-        await service.grpc_channel.unary_unary(f"/{RETRY_TEST_SERVICE}/StartCallers")(b"", timeout=10)
-    assert await service.grpc_channel.unary_unary(f"/{RETRY_TEST_SERVICE}/ListCallers")(b"", timeout=10) == b""
-    await service.grpc_channel.close()
+    try:
+        with pytest.raises(grpc.aio.AioRpcError):
+            await service.grpc_channel.unary_unary(f"/{RETRY_TEST_SERVICE}/StartCallers")(
+                b"", timeout=CALL_TIMEOUT_IN_S
+            )
+        assert (
+            await service.grpc_channel.unary_unary(f"/{RETRY_TEST_SERVICE}/ListCallers")(b"", timeout=CALL_TIMEOUT_IN_S)
+            == b""
+        )
+    finally:
+        await service.grpc_channel.close()
     assert len(invocations["StartCallers"]) == 1
     assert len(invocations["ListCallers"]) == 2
 

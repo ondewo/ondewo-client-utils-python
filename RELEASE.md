@@ -8,11 +8,25 @@
 
 * `BaseClient.disconnect()` / `AsyncBaseClient.disconnect()` closed no further channel once a services field had no channel (e.g. `None`): the lookup raised outside the per-channel error handling. Every remaining channel is now closed, and that error is still re-raised afterwards
 * gRPC retry-policy discovery no longer raises `AttributeError` when a scanned module holds a type whose `__module__` is not a `str` (as Cython's shared `coroutine` / `generator` types have)
+* `disconnect()` (sync and async) also closes every remaining channel when one close is cancelled (`asyncio.wait_for`, task cancellation at shutdown) or interrupted (`KeyboardInterrupt`); the `CancelledError` / interrupt is re-raised afterwards. Before, the remaining channels stayed open and became unreachable
+* `BaseClientConfig.host_and_port` brackets a bare IPv6 literal: `host="::1"` gave `"::1:50051"`, which gRPC rejects ("Misformatted domain name") only on the first call. Bracketed hosts and targets with a scheme (`ipv6:`, `dns:`, `unix:`) are unchanged
+* `get_attr_recursive(obj, path, default)` returns the default as soon as an attribute along the path is missing; it used to look the rest of the path up on the default itself (`"a.missing.upper"` with default `"x"` gave `"x".upper`)
 
 ### Improvements
 
+* Faster recovery after a server outage: `grpc.max_reconnect_backoff_ms` defaults to 5000 (gRPC's default cap is 120 s). Measured time from the server being back to the first successful call: 10-15 s after a 30 s outage and up to 65 s after 120 s before, 0.3-3.8 s now. A client makes one connect attempt per 5 s while a server is down
+* Faster dead-connection detection: `grpc.http2.ping_timeout_ms` (which, not `keepalive_timeout_ms`, bounds the wait for a ping reply in grpc-core) and `grpc.keepalive_timeout_ms` (also the socket's `TCP_USER_TIMEOUT`) default to 20000, gRPC's keepalive default. A silently dropped connection now fails in ~40 s instead of ~85 s. Keepalive cadence and the `too_many_pings`-safe settings are unchanged
+* `get_struct_from_dict` is typed `Optional[Dict[str, Any]]`, as it always accepted `None`
+* Test suite: vacuous tests made real (each now fails against the defect it names), duplicates removed, edge cases added (IPv6 hosts, option merging, cancellation, client lifecycle, retry-policy ordering, helpers)
+* README: connection defaults and why; async clients must be built inside their event loop
 * The sdist no longer ships a partial test suite (test modules without `conftest.py` and fixtures); it now matches the one built in the release image
 * The release guard (`make spc`) stops on an existing release branch or tag with `&& exit 1` (the echo was backgrounded with `&`) and also asks origin by exact ref name, since local refs can be stale
+
+### Notes for SDK maintainers
+
+* Every ONDEWO SDK config (nlu, csi, sip, s2t, t2s, vtsi) overrides `__repr__` and redacts only its `SECRET_FIELD_NAMES`, which bypasses `grpc_client_key`'s `repr=False`: add `grpc_client_key` there before enabling mutual TLS, or the key is printed in clear text
+* Since 4.1.0 `to_json()` / `to_dict()` always contain `grpc_client_cert` and `grpc_client_key` (`null` when unset); `from_json` / `from_dict` still load documents without them
+* Since 4.1.0 the wheel ships `py.typed`: a project that runs mypy with `ondewo-client-utils` installed now type-checks its calls into it, which can surface typing errors the untyped package used to hide
 
 *****************
 

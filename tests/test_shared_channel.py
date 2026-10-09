@@ -31,6 +31,7 @@ from typing import (
 )
 from unittest import mock
 
+import grpc
 import pytest
 
 from ondewo.utils import async_base_services_interface as absi
@@ -40,6 +41,10 @@ from ondewo.utils.async_base_client import AsyncBaseClient
 from ondewo.utils.base_client import BaseClient
 from ondewo.utils.base_client_config import BaseClientConfig
 from ondewo.utils.base_service_container import BaseServicesContainer
+from tests.conftest import (
+    CALL_TIMEOUT_IN_S,
+    local_config,
+)
 
 # service_config_json_for(<class in the Calls fixture module>) as it was before the discovery loop
 # was factored out for the shared channel; the refactor must not change a single byte of it.
@@ -100,17 +105,6 @@ def _policies(service_config_json: str) -> Dict[Tuple[str, str], Optional[Dict[s
     return result
 
 
-def _config() -> BaseClientConfig:
-    """
-    Build a config pointing at a local test endpoint.
-
-    Returns:
-        BaseClientConfig:
-            ``localhost:50051`` without a certificate.
-    """
-    return BaseClientConfig(host="localhost", port="50051")
-
-
 def test_the_refactor_kept_the_per_class_config_byte_identical(retry_test_service_module: ModuleType) -> None:
     """Verify ``service_config_json_for`` still emits exactly what it emitted before the refactor."""
     calls: type = type("Calls", (), {"__module__": retry_test_service_module.__name__})
@@ -154,8 +148,8 @@ def test_a_given_channel_is_used_and_nothing_is_built(
     calls: type = _service_class(retry_test_service_module, base, "Calls")
     agents: type = _service_class(agents_test_service_module, base, "Agents")
     with mock.patch.object(module, "_get_grpc_channel") as get_channel:
-        first: Any = calls(config=_config(), use_secure_channel=True, grpc_channel=shared)
-        second: Any = agents(config=_config(), use_secure_channel=True, options={("x", 1)}, grpc_channel=shared)
+        first: Any = calls(config=local_config(), use_secure_channel=True, grpc_channel=shared)
+        second: Any = agents(config=local_config(), use_secure_channel=True, options={("x", 1)}, grpc_channel=shared)
     assert first.grpc_channel is shared
     assert second.grpc_channel is shared
     get_channel.assert_not_called()
@@ -170,9 +164,9 @@ def test_build_shared_channel_uses_the_union_config_and_caller_options_win(
     calls: type = _service_class(retry_test_service_module, base, "Calls")
     agents: type = _service_class(agents_test_service_module, base, "Agents")
     with mock.patch.object(module, "_get_grpc_channel") as get_channel:
-        channel: Any = module.build_shared_channel(_config(), False, (calls, agents))
+        channel: Any = module.build_shared_channel(local_config(), False, (calls, agents))
         module.build_shared_channel(
-            _config(),
+            local_config(),
             True,
             (calls, agents),
             options={("grpc.max_send_message_length", 123), ("grpc.service_config", "{}")},
@@ -192,18 +186,53 @@ def test_build_shared_channel_uses_the_union_config_and_caller_options_win(
     assert overridden["grpc.keepalive_time_ms"] == module._DEFAULT_GRPC_OPTIONS["grpc.keepalive_time_ms"]
 
 
-def test_build_shared_channel_opens_a_real_sync_channel(retry_test_service_module: ModuleType) -> None:
-    """Verify an insecure shared channel really opens (the union config is accepted by gRPC core)."""
+@pytest.mark.parametrize("interface", INTERFACE_MODULES)
+def test_build_shared_channel_takes_any_sequence_and_names_a_class_once(
+    interface: Tuple[Any, type], retry_test_service_module: ModuleType
+) -> None:
+    """Verify a list of classes works and a class listed twice gives exactly its own single-class config."""
+    module, base = interface
+    calls: type = _service_class(retry_test_service_module, base, "Calls")
+    with mock.patch.object(module, "_get_grpc_channel") as get_channel:
+        module.build_shared_channel(local_config(), False, [calls, calls])  # type: ignore[arg-type]
+    assert dict(get_channel.call_args.kwargs["options"])["grpc.service_config"] == policy.service_config_json_for(calls)
+
+
+def test_build_shared_channel_opens_a_real_sync_channel(
+    retry_test_service_module: ModuleType,
+    agents_test_service_module: ModuleType,
+    edge_server: Tuple[str, Dict[str, int], Dict[str, List[Any]]],
+) -> None:
+    """Verify a real insecure shared channel can call: gRPC core accepted the union config and every default."""
     calls: type = _service_class(retry_test_service_module, bsi.BaseServicesInterface, "Calls")
-    channel: Any = bsi.build_shared_channel(_config(), False, (calls,))
-    channel.close()
+    agents: type = _service_class(agents_test_service_module, bsi.BaseServicesInterface, "Agents")
+    channel: Any = bsi.build_shared_channel(local_config(host="127.0.0.1", port=edge_server[0]), False, (calls, agents))
+    try:
+        with pytest.raises(grpc.RpcError) as raised:
+            channel.unary_unary("/e.S/Nope")(b"", timeout=CALL_TIMEOUT_IN_S)
+        # gRPC parses the options on the first call: a rejected one answers INVALID_ARGUMENT instead.
+        assert raised.value.code() is grpc.StatusCode.UNIMPLEMENTED
+    finally:
+        channel.close()
 
 
-async def test_build_shared_channel_opens_a_real_async_channel(retry_test_service_module: ModuleType) -> None:
-    """Verify an insecure async shared channel really opens inside the running event loop."""
+async def test_build_shared_channel_opens_a_real_async_channel(
+    retry_test_service_module: ModuleType,
+    agents_test_service_module: ModuleType,
+    edge_server: Tuple[str, Dict[str, int], Dict[str, List[Any]]],
+) -> None:
+    """Verify a real ``grpc.aio`` shared channel, built inside the running loop, can call."""
     calls: type = _service_class(retry_test_service_module, absi.AsyncBaseServicesInterface, "Calls")
-    channel: Any = absi.build_shared_channel(_config(), False, (calls,))
-    await channel.close(grace=None)
+    agents: type = _service_class(agents_test_service_module, absi.AsyncBaseServicesInterface, "Agents")
+    channel: Any = absi.build_shared_channel(
+        local_config(host="127.0.0.1", port=edge_server[0]), False, (calls, agents)
+    )
+    try:
+        with pytest.raises(grpc.aio.AioRpcError) as raised:
+            await channel.unary_unary("/e.S/Nope")(b"", timeout=CALL_TIMEOUT_IN_S)
+        assert raised.value.code() is grpc.StatusCode.UNIMPLEMENTED
+    finally:
+        await channel.close(grace=None)
 
 
 @dataclass
@@ -252,7 +281,7 @@ def test_a_sync_client_sharing_one_channel_closes_it_once(
                 agents=agents(config, use_secure_channel, grpc_channel=shared),
             )
 
-    client: _Client = _Client(config=_config())
+    client: _Client = _Client(config=local_config())
     client.disconnect()
     shared.close.assert_called_once_with()
 
@@ -288,6 +317,6 @@ async def test_an_async_client_sharing_one_channel_closes_it_once(
                 agents=agents(config, use_secure_channel, grpc_channel=shared),
             )
 
-    client: _Client = _Client(config=_config())
+    client: _Client = _Client(config=local_config())
     await client.disconnect()
     shared.close.assert_awaited_once_with(grace=None)

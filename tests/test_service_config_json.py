@@ -25,7 +25,7 @@ channel, and acceptance means an RPC reaches the server.
 import json
 import re
 import sys
-from concurrent import futures
+from time import perf_counter
 from types import ModuleType
 from typing import (
     Any,
@@ -52,7 +52,10 @@ from ondewo.utils import grpc_retry_policy as policy
 from ondewo.utils.async_base_services_interface import AsyncBaseServicesInterface
 from ondewo.utils.base_client_config import BaseClientConfig
 from ondewo.utils.base_services_interface import BaseServicesInterface
-from tests.conftest import _register_fake_client
+from tests.conftest import (
+    CALL_TIMEOUT_IN_S,
+    _register_fake_client,
+)
 
 UNKNOWN: int = descriptor_pb2.MethodOptions.IDEMPOTENCY_UNKNOWN
 IDEMPOTENT: int = descriptor_pb2.MethodOptions.IDEMPOTENT
@@ -254,65 +257,9 @@ def test_protobuf_refuses_non_ascii_names_so_the_config_is_always_ascii(name: st
         _service("e", "S", {name: UNARY})
 
 
-def test_the_retry_policy_values_are_what_grpc_core_accepts() -> None:
-    """Verify maxAttempts is within gRPC's 2..5 and durations carry the ``s`` suffix."""
-    retry_policy: Dict[str, Any] = policy.IDEMPOTENT_RETRY_POLICY
-    assert retry_policy["maxAttempts"] == 5
-    assert (retry_policy["initialBackoff"], retry_policy["maxBackoff"]) == ("0.1s", "3s")
-
-
 # endregion
 
 # region grpc-core accepts every produced config, and enforces it
-
-
-@pytest.fixture
-def edge_server() -> Iterator[Tuple[str, Dict[str, int], Dict[str, List[grpc.StatusCode]]]]:
-    """
-    Start an in-process server for ``e.S`` whose handlers count calls and fail as scripted.
-
-    ``GetA`` / ``StartA`` are unary, ``GetStream`` / ``StartStream`` server-streaming (two
-    responses). Every other method is answered ``UNIMPLEMENTED`` by gRPC itself.
-
-    Yields:
-        Tuple[str, Dict[str, int], Dict[str, List[grpc.StatusCode]]]:
-            The port, the call count per method and the per-method failure script.
-    """
-    counts: Dict[str, int] = {}
-    script: Dict[str, List[grpc.StatusCode]] = {}
-
-    def fail_if_scripted(method: str, context: grpc.ServicerContext) -> None:
-        counts[method] = counts.get(method, 0) + 1
-        if script.get(method):
-            context.abort(script[method].pop(0), f"scripted failure of {method}")
-
-    def unary(method: str) -> Callable[[bytes, grpc.ServicerContext], bytes]:
-        def handle(request: bytes, context: grpc.ServicerContext) -> bytes:
-            fail_if_scripted(method, context)
-            return b"ok"
-
-        return handle
-
-    def streaming(method: str) -> Callable[[bytes, grpc.ServicerContext], Iterator[bytes]]:
-        def handle(request: bytes, context: grpc.ServicerContext) -> Iterator[bytes]:
-            fail_if_scripted(method, context)
-            yield b"1"
-            yield b"2"
-
-        return handle
-
-    server: grpc.Server = grpc.server(futures.ThreadPoolExecutor(max_workers=4))
-    handlers: Dict[str, grpc.RpcMethodHandler] = {
-        "GetA": grpc.unary_unary_rpc_method_handler(unary("GetA")),
-        "StartA": grpc.unary_unary_rpc_method_handler(unary("StartA")),
-        "GetStream": grpc.unary_stream_rpc_method_handler(streaming("GetStream")),
-        "StartStream": grpc.unary_stream_rpc_method_handler(streaming("StartStream")),
-    }
-    server.add_generic_rpc_handlers((grpc.method_handlers_generic_handler("e.S", handlers),))
-    port: int = server.add_insecure_port("127.0.0.1:0")
-    server.start()
-    yield str(port), counts, script
-    server.stop(grace=None)
 
 
 EDGE_METHODS: Dict[str, MethodSpec] = {
@@ -335,7 +282,7 @@ def test_grpc_core_accepts_every_shape_on_a_sync_channel(
     ]
     with grpc.insecure_channel(f"127.0.0.1:{port}", options=options) as channel:
         with pytest.raises(grpc.RpcError) as raised:
-            channel.unary_unary("/e.S/Nope")(b"", timeout=5)
+            channel.unary_unary("/e.S/Nope")(b"", timeout=CALL_TIMEOUT_IN_S)
     assert raised.value.code() == grpc.StatusCode.UNIMPLEMENTED
 
 
@@ -351,7 +298,7 @@ async def test_grpc_core_accepts_every_shape_on_an_async_channel(
     ]
     async with grpc.aio.insecure_channel(f"127.0.0.1:{port}", options=options) as channel:
         with pytest.raises(grpc.aio.AioRpcError) as raised:
-            await channel.unary_unary("/e.S/Nope")(b"", timeout=5)
+            await channel.unary_unary("/e.S/Nope")(b"", timeout=CALL_TIMEOUT_IN_S)
     assert raised.value.code() == grpc.StatusCode.UNIMPLEMENTED
 
 
@@ -365,9 +312,27 @@ def test_a_duplicated_path_would_have_broken_the_channel(
     options: List[Tuple[str, Any]] = [("grpc.service_config", json.dumps(duplicated))]
     with grpc.insecure_channel(f"127.0.0.1:{port}", options=options) as channel:
         with pytest.raises(grpc.RpcError) as raised:
-            channel.unary_unary("/e.S/GetA")(b"", timeout=5)
+            channel.unary_unary("/e.S/GetA")(b"", timeout=CALL_TIMEOUT_IN_S)
     assert raised.value.code() == grpc.StatusCode.INVALID_ARGUMENT
     assert edge_server[1] == {}
+
+
+def test_ten_thousand_methods_build_fast_and_are_accepted_by_grpc_core(
+    edge_server: Tuple[str, Dict[str, int], Dict[str, List[grpc.StatusCode]]],
+) -> None:
+    """Verify a huge service (10k methods, half of them reads) stays cheap to describe and gRPC parses it."""
+    methods: Dict[str, MethodSpec] = {f"{'Get' if index % 2 else 'Start'}M{index}": UNARY for index in range(10_000)}
+    service: ServiceDescriptor = _service("e", "Huge", methods)
+    start_time: float = perf_counter()
+    config_json: str = policy.build_service_config_json([service])
+    assert perf_counter() - start_time < 0.5  # measured ~8 ms
+    _assert_well_formed(config_json)
+    assert len(_retried(config_json)) == 5_000
+    options: List[Tuple[str, Any]] = [("grpc.enable_retries", 1), ("grpc.service_config", config_json)]
+    with grpc.insecure_channel(f"127.0.0.1:{edge_server[0]}", options=options) as channel:
+        with pytest.raises(grpc.RpcError) as raised:
+            channel.unary_unary("/e.S/Nope")(b"", timeout=CALL_TIMEOUT_IN_S)
+    assert raised.value.code() == grpc.StatusCode.UNIMPLEMENTED
 
 
 def _edge_service_class(base: type) -> Tuple[type, Tuple[ModuleType, ...]]:
@@ -418,10 +383,12 @@ def test_a_streaming_read_is_re_opened_and_a_streaming_mutation_is_not(
     service: Any = edge_classes(BaseServicesInterface)(
         config=BaseClientConfig(host="127.0.0.1", port=port), use_secure_channel=False
     )
-    assert list(service.grpc_channel.unary_stream("/e.S/GetStream")(b"", timeout=10)) == [b"1", b"2"]
-    with pytest.raises(grpc.RpcError):
-        list(service.grpc_channel.unary_stream("/e.S/StartStream")(b"", timeout=10))
-    service.grpc_channel.close()
+    try:
+        assert list(service.grpc_channel.unary_stream("/e.S/GetStream")(b"", timeout=CALL_TIMEOUT_IN_S)) == [b"1", b"2"]
+        with pytest.raises(grpc.RpcError):
+            list(service.grpc_channel.unary_stream("/e.S/StartStream")(b"", timeout=CALL_TIMEOUT_IN_S))
+    finally:
+        service.grpc_channel.close()
     assert counts == {"GetStream": 2, "StartStream": 1}
 
 
@@ -435,29 +402,18 @@ async def test_the_async_interface_enforces_the_same_policy_on_streams(
     service: Any = edge_classes(AsyncBaseServicesInterface)(
         config=BaseClientConfig(host="127.0.0.1", port=port), use_secure_channel=False
     )
-    assert [item async for item in service.grpc_channel.unary_stream("/e.S/GetStream")(b"", timeout=10)] == [
-        b"1",
-        b"2",
-    ]
-    with pytest.raises(grpc.aio.AioRpcError):
-        [item async for item in service.grpc_channel.unary_stream("/e.S/StartStream")(b"", timeout=10)]
-    await service.grpc_channel.close()
+    try:
+        assert [
+            item async for item in service.grpc_channel.unary_stream("/e.S/GetStream")(b"", timeout=CALL_TIMEOUT_IN_S)
+        ] == [b"1", b"2"]
+        with pytest.raises(grpc.aio.AioRpcError):
+            [
+                item
+                async for item in service.grpc_channel.unary_stream("/e.S/StartStream")(b"", timeout=CALL_TIMEOUT_IN_S)
+            ]
+    finally:
+        await service.grpc_channel.close()
     assert counts == {"GetStream": 2, "StartStream": 1}
-
-
-@pytest.mark.parametrize("interface_module, base", [(bsi, BaseServicesInterface), (absi, AsyncBaseServicesInterface)])
-def test_a_caller_supplied_config_string_wins_on_both_interfaces(
-    interface_module: ModuleType, base: type, edge_classes: Callable[[type], type]
-) -> None:
-    """Verify ``("grpc.service_config", <str>)`` replaces the derived policy, sync and async."""
-    own: str = json.dumps({"methodConfig": [{"name": [{}], "timeout": "1s"}]})
-    with mock.patch.object(interface_module, "_get_grpc_channel") as get_channel:
-        edge_classes(base)(
-            config=BaseClientConfig(host="localhost", port="1"),
-            use_secure_channel=False,
-            options={("grpc.service_config", own)},
-        )
-    assert dict(get_channel.call_args.kwargs["options"])["grpc.service_config"] == own
 
 
 @pytest.mark.parametrize("interface_module, base", [(bsi, BaseServicesInterface), (absi, AsyncBaseServicesInterface)])

@@ -73,9 +73,22 @@ def get_attr_recursive(obj: Any, attr: str, *args: Any) -> Any:
 
     Returns:
         Any:
-            The value of the nested attribute, or the provided default when given.
+            The value of the nested attribute, or the provided default when given. The default is
+            returned as soon as one attribute along the path is missing; the rest of the path is
+            never looked up on the default itself.
+
+    Raises:
+        AttributeError:
+            If an attribute along the path does not exist and no default is given.
     """
-    return functools.reduce(lambda obj_, attr_: getattr(obj_, attr_, *args), [obj] + attr.split("."))
+    if not args:
+        return functools.reduce(getattr, attr.split("."), obj)
+    missing: object = object()
+    for name in attr.split("."):
+        obj = getattr(obj, name, missing)
+        if obj is missing:
+            return args[0]
+    return obj
 
 
 def set_attr_recursive(obj: Any, attr: str, value: Any) -> None:

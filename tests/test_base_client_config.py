@@ -39,31 +39,16 @@ import pytest
 
 from ondewo.utils import base_client_config as module
 from ondewo.utils.base_client_config import BaseClientConfig
-from tests.test_base_client_config_golden import (
-    GOLDEN_PATH,
+from tests.conftest import (
     PEM,
     REFRESH_TOKEN,
     SECRET,
+    ConfigWithPassword,
     Inner,
     KeycloakConfig,
     NestedConfig,
     PipeUnionConfig,
-    _without_unset_added_fields,
-    all_cases,
 )
-
-
-@dataclass(frozen=True)
-class _ConfigWithPassword(BaseClientConfig):
-    """
-    A downstream-style frozen config subclass carrying an extra credential field.
-
-    Attributes:
-        password (str):
-            A credential field, as downstream SDK configs declare.
-    """
-
-    password: str = ""
 
 
 class _Color(Enum):
@@ -102,21 +87,6 @@ class _Required(BaseClientConfig):
     """
 
     token: str = field(kw_only=True)
-
-
-def _golden(case_id: str) -> Any:
-    """
-    Return one recorded dataclasses-json outcome.
-
-    Args:
-        case_id (str):
-            The case.
-
-    Returns:
-        Any:
-            The recorded outcome.
-    """
-    return json.loads(GOLDEN_PATH.read_text(encoding="utf-8"))[case_id]
 
 
 def _keycloak() -> KeycloakConfig:
@@ -248,46 +218,15 @@ def test_the_pem_newlines_are_escaped_in_the_json() -> None:
 
 def test_a_subclass_with_a_password_round_trips_through_json() -> None:
     """Verify a frozen subclass inherits the certificate encoder and round-trips through JSON."""
-    config: _ConfigWithPassword = _ConfigWithPassword(host="h", port="1", grpc_cert="PEM", password="pw")
-    restored: _ConfigWithPassword = _ConfigWithPassword.from_json(config.to_json())
+    config: ConfigWithPassword = ConfigWithPassword(host="h", port="1", grpc_cert="PEM", password="pw")
+    restored: ConfigWithPassword = ConfigWithPassword.from_json(config.to_json())
     assert restored == config
-    assert type(restored) is _ConfigWithPassword
+    assert type(restored) is ConfigWithPassword
     assert json.loads(config.to_json())["grpc_cert"] == "PEM"
 
 
-# region the outcomes that differ from dataclasses-json ON PURPOSE (DELIBERATE_DIFFERENCES)
-
-
-@pytest.mark.parametrize(
-    "name",
-    [
-        "none",
-        "str_cert",
-        "bytes_cert",
-        "empty_cert",
-        "non_ascii",
-        "long",
-        "int_port",
-        "keycloak",
-        "pipe_union",
-        "nested",
-    ],
-)
-def test_to_json_is_the_same_document_rendered_compact_and_utf8(name: str) -> None:
-    """Verify ``to_json()`` is exactly dataclasses-json's document with orjson's compact UTF-8 layout."""
-    old: str = _golden(f"{name}.to_json")["result"]
-    new: str = _without_unset_added_fields(all_cases()[f"{name}.to_json"]())
-    assert new == json.dumps(json.loads(old), separators=(",", ":"), ensure_ascii=False)
-    assert json.loads(new) == json.loads(old)
-    assert list(json.loads(new)) == list(json.loads(old))  # same key order
-
-
-@pytest.mark.parametrize("case_id", ["from_dict.missing_mandatory_key", "from_dict.nested_missing_mandatory"])
-def test_a_missing_mandatory_field_raises_type_error_instead_of_key_error(case_id: str) -> None:
-    """Verify an absent field without a default raises the constructor's ``TypeError`` (was ``KeyError``)."""
-    assert _golden(case_id)["error"] == "KeyError"
-    with pytest.raises(TypeError, match="missing 1 required"):
-        all_cases()[case_id]()
+# region outcomes that differ from dataclasses-json on purpose (the golden-fixture ones are in
+# test_base_client_config_golden.py)
 
 
 def test_a_missing_keyword_only_field_raises_type_error() -> None:
@@ -297,40 +236,10 @@ def test_a_missing_keyword_only_field_raises_type_error() -> None:
     assert _Required.from_dict({"host": "h", "port": "1", "token": 7}).token == "7"
 
 
-@pytest.mark.parametrize(
-    "case_id, received",
-    [
-        ("from_dict.none", "NoneType"),
-        ("from_json.list_document", "list"),
-        ("from_json.string_document", "str"),
-        ("from_json.null_document", "NoneType"),
-    ],
-)
-def test_a_document_that_is_not_an_object_raises_type_error(case_id: str, received: str) -> None:
-    """Verify a non-object document raises a ``TypeError`` naming the class (was ``AttributeError``)."""
-    assert _golden(case_id)["error"] == "AttributeError"
-    with pytest.raises(TypeError, match=f"BaseClientConfig must be decoded from a JSON object .*not {received}$"):
-        all_cases()[case_id]()
-
-
 def test_a_nested_value_that_is_not_an_object_raises_type_error() -> None:
     """Verify a nested dataclass field given a non-object names the nested class."""
     with pytest.raises(TypeError, match="Inner must be decoded from a JSON object"):
         NestedConfig.from_dict({"host": "h", "port": "1", "inner": "x"})
-
-
-def test_bytes_given_for_the_certificate_are_kept() -> None:
-    """Verify ``from_dict`` keeps ``bytes`` as the constructor does (dataclasses-json made them ``"b'PEM'"``)."""
-    assert _golden("from_dict.bytes_cert")["result"]["fields"]["grpc_cert"] == repr(b"b'PEM'")
-    restored: BaseClientConfig = BaseClientConfig.from_dict({"host": "h", "port": "1", "grpc_cert": b"PEM"})
-    assert restored == BaseClientConfig(host="h", port="1", grpc_cert="PEM")
-
-
-def test_nan_is_rejected_as_invalid_json() -> None:
-    """Verify orjson rejects the non-standard ``NaN`` literal (dataclasses-json fed it to ``int()``)."""
-    assert _golden("from_json.nan_into_optional_int")["error"] == "ValueError"
-    with pytest.raises(json.JSONDecodeError):
-        all_cases()["from_json.nan_into_optional_int"]()
 
 
 def test_schema_is_gone() -> None:
@@ -500,12 +409,11 @@ def test_pep_604_optional_fields_decode() -> None:
     assert (restored.port, restored.token_expiration_in_s, restored.realm) == ("1", 9, None)
 
 
-def test_the_certificate_encoder_keeps_dataclasses_json_metadata_shape() -> None:
-    """Verify ``grpc_cert`` still carries ``config(encoder=...)``'s exact metadata for ``@dataclass_json`` subclasses."""
-    (cert_field,) = [
-        config_field for config_field in dataclasses.fields(BaseClientConfig) if config_field.name == "grpc_cert"
-    ]
-    assert dict(cert_field.metadata) == {"dataclasses_json": {"encoder": module._encode_grpc_cert}}
+@pytest.mark.parametrize("name", ["grpc_cert", "grpc_client_cert", "grpc_client_key"])
+def test_every_pem_field_keeps_dataclasses_json_metadata_shape(name: str) -> None:
+    """Verify each PEM field carries ``config(encoder=...)``'s exact metadata for ``@dataclass_json`` subclasses."""
+    (pem_field,) = [config_field for config_field in dataclasses.fields(BaseClientConfig) if config_field.name == name]
+    assert dict(pem_field.metadata) == {"dataclasses_json": {"encoder": module._encode_grpc_cert}}
 
 
 def test_importing_the_package_loads_neither_dataclasses_json_nor_marshmallow() -> None:
@@ -516,11 +424,56 @@ def test_importing_the_package_loads_neither_dataclasses_json_nor_marshmallow() 
         "print(sorted(m for m in sys.modules if m.split('.')[0] in {'dataclasses_json', 'marshmallow'}))"
     )
     loaded: List[str] = json.loads(
-        subprocess.run([sys.executable, "-c", probe], check=True, capture_output=True, text=True).stdout.replace(
-            "'", '"'
-        )
+        subprocess.run(
+            [sys.executable, "-c", probe], check=True, capture_output=True, text=True, timeout=60
+        ).stdout.replace("'", '"')
     )
     assert loaded == []
+
+
+def test_an_int_port_is_kept_as_given_but_comes_back_from_json_as_str() -> None:
+    """Pin: the constructor keeps an ``int`` port, ``from_*`` coerces it to ``str``, so the round trip is unequal."""
+    config: BaseClientConfig = BaseClientConfig(host="h", port=50051)  # type: ignore[arg-type]
+    assert config.port == 50051
+    assert config.host_and_port == "h:50051"
+    restored: BaseClientConfig = BaseClientConfig.from_json(config.to_json())
+    assert restored.port == "50051"
+    assert restored != config
+
+
+def test_a_list_given_for_the_port_becomes_its_text() -> None:
+    """Pin dataclasses-json's ``str(value)`` coercion: ``[1]`` for a ``str`` field becomes ``"[1]"``."""
+    assert BaseClientConfig.from_dict({"host": "h", "port": [1]}).port == "[1]"
+
+
+def test_no_certificate_and_an_empty_certificate_are_different_configs() -> None:
+    """Verify ``None`` and ``""`` stay distinct (equality, hash), though neither opens a secure channel."""
+    unset: BaseClientConfig = BaseClientConfig(host="h", port="1", grpc_cert=None)
+    empty: BaseClientConfig = BaseClientConfig(host="h", port="1", grpc_cert="")
+    assert unset != empty
+    assert len({unset, empty}) == 2
+
+
+def test_replace_encodes_a_new_str_certificate() -> None:
+    """Verify ``dataclasses.replace`` with a new ``str`` certificate runs ``__post_init__`` and encodes it."""
+    config: BaseClientConfig = BaseClientConfig(host="h", port="1", grpc_cert="OLD")
+    assert dataclasses.replace(config, grpc_cert="NEW").grpc_cert == b"NEW"
+
+
+def test_from_dict_gives_every_config_its_own_default_collections() -> None:
+    """Verify an absent ``default_factory`` field gets a fresh object per config, never a shared one."""
+    first: NestedConfig = NestedConfig.from_dict({"host": "h", "port": "1"})
+    second: NestedConfig = NestedConfig.from_dict({"host": "h", "port": "1"})
+    assert (first.inner, first.tags, first.labels) == (None, [], {})
+    first.tags.append("x")
+    first.labels["k"] = "v"
+    assert (second.tags, second.labels) == ([], {})
+
+
+def test_a_document_nested_one_level_too_deep_raises_type_error() -> None:
+    """Verify a config wrapped in an outer object fails loudly instead of loading an empty config."""
+    with pytest.raises(TypeError, match="missing 2 required positional arguments: 'host' and 'port'"):
+        BaseClientConfig.from_dict({"config": {"host": "h", "port": "1"}})
 
 
 # endregion

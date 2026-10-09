@@ -273,6 +273,21 @@ class TestTheConfigCarriesAClientCertificate:
         assert dataclasses.replace(config, port="2").grpc_client_key == b"client-key"
 
     @staticmethod
+    @pytest.mark.parametrize("dropped", ["grpc_client_cert", "grpc_client_key"])
+    def test_replace_dropping_half_the_identity_is_refused(dropped: str) -> None:
+        config: BaseClientConfig = BaseClientConfig(
+            host="h",
+            port="1",
+            grpc_cert="ca",
+            grpc_client_cert="client-cert",
+            grpc_client_key="very-secret-key",
+        )
+        changes: Dict[str, Any] = {dropped: None}
+        with pytest.raises(ValueError, match="set both to use mutual TLS, or neither") as refusal:
+            dataclasses.replace(config, **changes)
+        assert "very-secret-key" not in str(refusal.value)
+
+    @staticmethod
     def test_a_document_written_before_mutual_tls_still_loads() -> None:
         config: BaseClientConfig = BaseClientConfig.from_json('{"host": "h", "port": "1", "grpc_cert": "ca"}')
         assert (config.grpc_client_cert, config.grpc_client_key) == (None, None)
@@ -431,6 +446,19 @@ class TestARealAsyncHandshake:
     async def test_tls_only_server_serves_a_client_without_a_leaf(async_server: Any, pki: Pki) -> None:
         port: int = await async_server(pki, False)
         assert await _async_ping(_config(port, pki)) == b"ping"
+
+    @staticmethod
+    async def test_tls_only_server_also_serves_a_client_presenting_a_leaf(async_server: Any, pki: Pki) -> None:
+        port: int = await async_server(pki, False)
+        assert await _async_ping(_config(port, pki, client=pki)) == b"ping"
+
+    @staticmethod
+    async def test_the_client_still_verifies_the_server(async_server: Any, pki: Pki, foreign: Pki) -> None:
+        """Presenting a leaf does not weaken server verification: trusting another CA still fails."""
+        port: int = await async_server(pki, True)
+        with pytest.raises(grpc.aio.AioRpcError) as refusal:
+            await _async_ping(_config(port, foreign, client=pki))
+        assert refusal.value.code() is grpc.StatusCode.UNAVAILABLE
 
 
 def _crlf(pem: bytes) -> bytes:

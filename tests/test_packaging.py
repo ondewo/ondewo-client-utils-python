@@ -13,13 +13,14 @@
 # limitations under the License.
 """Packaging: the wheel ships ``py.typed``; the sdist ships no half test suite."""
 
-import tomllib
 from pathlib import Path
 from typing import Any, Dict
 
 import ondewo.utils
-
-REPO_ROOT: Path = Path(__file__).resolve().parent.parent
+from tests.conftest import (
+    REPO_ROOT,
+    load_pyproject,
+)
 
 
 def test_py_typed_marker_exists_in_the_package() -> None:
@@ -29,7 +30,7 @@ def test_py_typed_marker_exists_in_the_package() -> None:
 
 def test_package_data_ships_the_py_typed_marker() -> None:
     """Verify pyproject's setuptools package-data includes ``py.typed`` for ``ondewo.utils``."""
-    pyproject: Dict[str, Any] = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    pyproject: Dict[str, Any] = load_pyproject()
     assert "py.typed" in pyproject["tool"]["setuptools"]["package-data"]["ondewo.utils"]
 
 

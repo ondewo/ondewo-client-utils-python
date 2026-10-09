@@ -12,30 +12,32 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Async unit tests for :class:`ondewo.utils.async_base_services_interface.AsyncBaseServicesInterface`."""
+"""
+Async unit tests for :class:`ondewo.utils.async_base_services_interface.AsyncBaseServicesInterface`.
+
+Covers the async-only parts: a real ``grpc.aio`` channel, the insecure-channel warning, and the parity
+of the hand-maintained default options with the sync module. Everything both interfaces share is pinned
+for both in ``test_channel_option_contract.py``.
+"""
 
 import logging
-from dataclasses import dataclass
 from typing import (
     Any,
     Dict,
     List,
     Tuple,
 )
-from unittest import mock
 
 import grpc
 import pytest
 
 from ondewo.utils import async_base_services_interface as absi
 from ondewo.utils import base_services_interface as bsi
-from ondewo.utils.async_base_services_interface import (
-    MAX_MESSAGE_LENGTH,
-    AsyncBaseServicesInterface,
-    get_secure_channel,
+from ondewo.utils.async_base_services_interface import AsyncBaseServicesInterface
+from tests.conftest import (
+    CALL_TIMEOUT_IN_S,
+    local_config,
 )
-from ondewo.utils.base_client_config import BaseClientConfig
-from ondewo.utils.grpc_retry_policy import service_config_json_for
 
 
 class _ConcreteAsyncService(AsyncBaseServicesInterface):
@@ -59,135 +61,21 @@ class _ConcreteAsyncService(AsyncBaseServicesInterface):
         return "the-async-stub"
 
 
-def _config(cert: Any = None) -> BaseClientConfig:
-    """
-    Build a :class:`BaseClientConfig` pointing at a local test endpoint.
-
-    Args:
-        cert (Any):
-            Optional gRPC certificate forwarded to ``grpc_cert``. Defaults to ``None``.
-
-    Returns:
-        BaseClientConfig:
-            A config for ``localhost:50051`` carrying the supplied certificate.
-    """
-    return BaseClientConfig(host="localhost", port="50051", grpc_cert=cert)
-
-
-def test_max_message_length_is_int32_max() -> None:
-    """
-    Verify that ``MAX_MESSAGE_LENGTH`` equals the signed 32-bit integer maximum.
-
-    Returns:
-        None:
-            This test returns nothing; it asserts on the constant value.
-    """
-    assert MAX_MESSAGE_LENGTH == 2**31 - 1
-
-
-def test_keepalive_enabled_only_during_active_calls() -> None:
-    """
-    Verify keepalive is configured to ping only while a call is active.
-
-    Returns:
-        None:
-            This test returns nothing; it asserts on the default gRPC options.
-    """
-    # Keepalive pings are on (long-lived streams stay warm, half-open sockets
-    # get detected) but only while a call is active, so idle channels never
-    # trigger a server "too_many_pings" GOAWAY.
-    options: Dict[str, Any] = absi._DEFAULT_GRPC_OPTIONS
-    assert options["grpc.keepalive_time_ms"] == 30000
-    assert options["grpc.keepalive_permit_without_calls"] is False
-    # 2 (gRPC's default), never 0 = unlimited: a default grpc-core server GOAWAYs a client that
-    # keeps pinging a silent stream ("too_many_pings", measured after ~50 s at a 10 s keepalive),
-    # tearing down the shared connection and every non-retried RPC on it.
-    assert options["grpc.http2.max_pings_without_data"] == 2
-
-
-async def test_insecure_channel_without_options() -> None:
-    """
-    Verify an insecure channel is built when ``use_secure_channel`` is ``False``.
-
-    Returns:
-        None:
-            This test returns nothing; it asserts the channel and stub are set.
-    """
-    service: _ConcreteAsyncService = _ConcreteAsyncService(config=_config(), use_secure_channel=False)
-    # a real channel: gRPC core accepted every default option, the service config included
-    assert isinstance(service.grpc_channel, grpc.aio.Channel)
-    assert service.stub == "the-async-stub"
-    await service.grpc_channel.close(grace=None)
-
-
-def test_get_secure_channel_builds_credentials() -> None:
-    """
-    Verify ``get_secure_channel`` builds SSL credentials and a secure channel.
-
-    Returns:
-        None:
-            This test returns nothing; it asserts on the mocked gRPC calls.
-    """
-    with (
-        mock.patch.object(absi.grpc, "ssl_channel_credentials") as creds,
-        mock.patch.object(absi.grpc.aio, "secure_channel") as secure_channel,
-    ):
-        channel = get_secure_channel(host="localhost:50051", cert="cert-bytes", options=[])
-    # a str cert is normalized to bytes before being handed to gRPC
-    creds.assert_called_once_with(root_certificates=b"cert-bytes", private_key=None, certificate_chain=None)
-    # options must reach gRPC: a get_secure_channel that dropped them would silently lose the
-    # retry policy, the keepalive and the message-size limits on every TLS channel
-    secure_channel.assert_called_once_with(target="localhost:50051", credentials=creds.return_value, options=[])
-    assert channel is secure_channel.return_value
-
-
-def test_secure_channel_via_init() -> None:
-    """Verify ``__init__`` opens a TLS channel with the class's full default options."""
-    with (
-        mock.patch.object(absi.grpc, "ssl_channel_credentials") as creds,
-        mock.patch.object(absi.grpc.aio, "secure_channel") as secure_channel,
-    ):
-        service: _ConcreteAsyncService = _ConcreteAsyncService(config=_config(cert="my-cert"), use_secure_channel=True)
-    assert service.grpc_channel is secure_channel.return_value
-    creds.assert_called_once_with(root_certificates=b"my-cert", private_key=None, certificate_chain=None)
-    expected_options: List[Tuple[str, Any]] = absi._grpc_options_items_for(_ConcreteAsyncService)
-    secure_channel.assert_called_once_with(
-        target="localhost:50051", credentials=creds.return_value, options=expected_options
+async def test_insecure_channel_without_options(
+    edge_server: Tuple[str, Dict[str, int], Dict[str, List[grpc.StatusCode]]],
+) -> None:
+    """Verify a real ``grpc.aio`` channel with every default option, the service config included, can call."""
+    service: _ConcreteAsyncService = _ConcreteAsyncService(
+        config=local_config(host="127.0.0.1", port=edge_server[0]), use_secure_channel=False
     )
-    options: Dict[str, Any] = dict(expected_options)
-    assert options["grpc.service_config"] == service_config_json_for(_ConcreteAsyncService)
-    assert options["grpc.enable_retries"] == 1
-    assert options["grpc.max_send_message_length"] == MAX_MESSAGE_LENGTH
-    assert options["grpc.max_receive_message_length"] == MAX_MESSAGE_LENGTH
-
-
-def test_secure_channel_missing_cert_raises() -> None:
-    """
-    Verify init raises ``ValueError`` when a secure channel lacks a certificate.
-
-    Returns:
-        None:
-            This test returns nothing; it asserts a ``ValueError`` is raised.
-
-    Raises:
-        AssertionError:
-            If the expected ``ValueError`` is not raised.
-    """
-    with pytest.raises(ValueError, match="No grpc certificate"):
-        _ConcreteAsyncService(config=_config(cert=None), use_secure_channel=True)
-
-
-@dataclass(frozen=True)
-class _ConfigWithPassword(BaseClientConfig):
-    """
-    A downstream-style config subclass carrying a credential that must never reach an error message.
-
-    Attributes:
-        password (str):
-            A credential field.
-    """
-
-    password: str = ""
+    try:
+        assert service.stub == "the-async-stub"
+        with pytest.raises(grpc.aio.AioRpcError) as raised:
+            await service.grpc_channel.unary_unary("/e.S/Nope")(b"", timeout=CALL_TIMEOUT_IN_S)
+        # gRPC parses the options on the first call: a rejected one answers INVALID_ARGUMENT instead.
+        assert raised.value.code() is grpc.StatusCode.UNIMPLEMENTED
+    finally:
+        await service.grpc_channel.close(grace=None)
 
 
 async def test_insecure_warning_uses_a_module_logger_and_names_the_target(
@@ -198,13 +86,13 @@ async def test_insecure_warning_uses_a_module_logger_and_names_the_target(
     # A host application that configured no logging: module-level logging.warning() would run
     # basicConfig() here and leave a stderr handler on the root logger.
     monkeypatch.setattr(root, "handlers", [])
-    unconfigured: _ConcreteAsyncService = _ConcreteAsyncService(config=_config(), use_secure_channel=False)
+    unconfigured: _ConcreteAsyncService = _ConcreteAsyncService(config=local_config(), use_secure_channel=False)
     assert root.handlers == []
     await unconfigured.grpc_channel.close(grace=None)
 
     monkeypatch.setattr(root, "handlers", [caplog.handler])
     with caplog.at_level(logging.WARNING, logger="ondewo.utils.async_base_services_interface"):
-        service: _ConcreteAsyncService = _ConcreteAsyncService(config=_config(), use_secure_channel=False)
+        service: _ConcreteAsyncService = _ConcreteAsyncService(config=local_config(), use_secure_channel=False)
     records: List[logging.LogRecord] = [
         r for r in caplog.records if r.name == "ondewo.utils.async_base_services_interface"
     ]
@@ -214,22 +102,7 @@ async def test_insecure_warning_uses_a_module_logger_and_names_the_target(
     await service.grpc_channel.close(grace=None)
 
 
-def test_missing_cert_error_never_renders_the_config() -> None:
-    """Verify the missing-certificate error names class and target but not the config's fields."""
-    config: _ConfigWithPassword = _ConfigWithPassword(host="h", port="1", password="hunter2")
-    with pytest.raises(ValueError, match="No grpc certificate") as error:
-        _ConcreteAsyncService(config=config, use_secure_channel=True)
-    assert "hunter2" not in str(error.value)
-    assert "hunter2" not in repr(error.value)
-    assert "h:1" in str(error.value)
-    assert "_ConfigWithPassword" in str(error.value)
-
-
-def test_srv_queries_are_not_enabled_by_default() -> None:
-    """Verify the grpclb-only SRV lookup is off (15.9 ms vs 1.4 ms per channel to 127.0.0.1)."""
-    assert "grpc.dns_enable_srv_queries" not in absi._DEFAULT_GRPC_OPTIONS
-
-
 def test_sync_and_async_default_options_are_identical() -> None:
     """Verify the two hand-maintained copies of the default channel options cannot drift."""
+    assert absi.MAX_MESSAGE_LENGTH == bsi.MAX_MESSAGE_LENGTH
     assert dict(bsi._DEFAULT_GRPC_OPTIONS) == absi._DEFAULT_GRPC_OPTIONS

@@ -19,10 +19,10 @@ visible to every user on the host for the life of the process; an ``echo`` puts 
 """
 
 import re
-from pathlib import Path
 from typing import List
 
-REPO_ROOT: Path = Path(__file__).resolve().parent.parent
+from tests.conftest import REPO_ROOT
+
 MAKEFILE: str = (REPO_ROOT / "Makefile").read_text(encoding="utf-8")
 DOCKERFILE_UTILS: str = (REPO_ROOT / "Dockerfile.utils").read_text(encoding="utf-8")
 

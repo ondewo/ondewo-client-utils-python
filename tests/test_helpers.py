@@ -57,6 +57,16 @@ class TestGetStructFromDict:
         with pytest.raises(TypeError, match="got str"):
             get_struct_from_dict("not-a-dict")  # type: ignore[arg-type]
 
+    def test_a_non_str_key_raises_type_error(self) -> None:
+        """Pin protobuf's refusal of a non-``str`` key (a ``Struct`` is keyed by text)."""
+        with pytest.raises(TypeError):
+            get_struct_from_dict({1: "a"})  # type: ignore[dict-item]
+
+    def test_a_bytes_value_raises_value_error(self) -> None:
+        """Pin protobuf's refusal of a value JSON has no type for, such as ``bytes``."""
+        with pytest.raises(ValueError, match="Unexpected type"):
+            get_struct_from_dict({"b": b"x"})
+
     def test_nested_values_are_converted(self) -> None:
         """Verify nested dict and list values become nested ``Struct`` / ``ListValue`` entries."""
         struct: Struct = get_struct_from_dict({"outer": {"inner": 1.5}, "items": ["a", 2, None]})
@@ -81,6 +91,19 @@ class TestGetAttrRecursive:
         obj: SimpleNamespace = SimpleNamespace(a=SimpleNamespace())
         assert get_attr_recursive(obj, "a.missing", "fallback") == "fallback"
 
+    def test_none_mid_path_with_default_returns_the_default(self) -> None:
+        """Verify a ``None`` along the path yields the default rather than an ``AttributeError``."""
+        default: object = object()
+        assert get_attr_recursive(SimpleNamespace(a=None), "a.b.c", default) is default
+
+    def test_the_rest_of_the_path_is_never_looked_up_on_the_default(self) -> None:
+        """Verify ``"a.missing.upper"`` with default ``"x"`` gives ``"x"``, not ``"x".upper``."""
+        assert get_attr_recursive(SimpleNamespace(a=SimpleNamespace()), "a.missing.upper", "x") == "x"
+
+    def test_an_existing_none_at_the_end_is_returned_not_the_default(self) -> None:
+        """Verify an attribute that exists with value ``None`` is returned even when a default is given."""
+        assert get_attr_recursive(SimpleNamespace(a=SimpleNamespace(b=None)), "a.b", "x") is None
+
     def test_missing_attribute_without_default_raises(self) -> None:
         """Verify that a missing attribute without a default raises ``AttributeError``."""
         obj: SimpleNamespace = SimpleNamespace()
@@ -102,3 +125,10 @@ class TestSetAttrRecursive:
         obj: SimpleNamespace = SimpleNamespace(x=0)
         set_attr_recursive(obj, "x", "new")
         assert obj.x == "new"
+
+    def test_a_missing_intermediate_attribute_raises(self) -> None:
+        """Verify a path through a missing attribute raises ``AttributeError`` naming it, and sets nothing."""
+        obj: SimpleNamespace = SimpleNamespace(a=SimpleNamespace())
+        with pytest.raises(AttributeError, match="missing"):
+            set_attr_recursive(obj, "a.missing.c", 1)
+        assert vars(obj.a) == {}

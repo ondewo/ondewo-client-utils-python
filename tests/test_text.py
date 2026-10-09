@@ -28,6 +28,14 @@ from ondewo.utils.text import TextHelper
         ("HTTPResponseCode", "http_response_code"),
         ("lowercase", "lowercase"),
         ("", ""),
+        ("getHTTP2Status", "get_http2_status"),
+        # A digit never starts a new word, so an acronym after it is joined to it.
+        ("Get2FAStatus", "get2fa_status"),
+        ("IOError", "io_error"),
+        ("getID", "get_id"),
+        ("XMLHttpRequest", "xml_http_request"),
+        ("ABC", "abc"),
+        ("A", "a"),
     ],
 )
 def test_from_camel_to_snake_case(text: str, expected: str) -> None:

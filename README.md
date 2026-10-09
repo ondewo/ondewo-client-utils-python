@@ -156,8 +156,11 @@ TLS security notes
 - `to_dict()` / `to_json()` write `grpc_client_key` **in clear text**. Treat any serialized config as a secret
   (file mode `0600`, never commit it), or better keep the key out of it and load it from a file or secret store at
   startup.
-- `repr(config)` leaves out `grpc_client_key`, but it still shows the other fields: do not log configs or their
-  serialized form.
+- `repr(config)` leaves out `grpc_client_key` (`field(repr=False)`), but it still shows the other fields: do not log
+  configs or their serialized form.
+- **SDK maintainers:** a subclass that defines its own `__repr__` overrides that protection. Every ONDEWO SDK config
+  (nlu, csi, sip, s2t, t2s, vtsi) does so, redacting only a `SECRET_FIELD_NAMES` set; add `grpc_client_key` to it (or
+  skip fields whose `repr` is `False`) before enabling mutual TLS through it, or the key is printed in clear text.
 
 TLS troubleshooting
 -------------------
@@ -238,8 +241,9 @@ calls = Calls(config=config, use_secure_channel=True, options={("grpc.service_co
 One connection for all services (low latency)
 ---------------------------------------------
 
-By default every service interface opens its own channel, so a client with N services opens N TCP connections and
-pays N name resolutions and N TLS handshakes. Build one channel for all of them and hand it to each service; the
+By default every service interface opens its own channel, so a client with N services pays N channel set-ups, and
+over TLS N TCP connections and N TLS handshakes (plaintext channels to the same target share one connection through
+gRPC's subchannel pool, but each still pays its own set-up). Build one channel for all of them and hand it to each service; the
 shared channel's retry policy gives every method exactly the policy it would have had on its own channel:
 
 ```python
@@ -261,4 +265,22 @@ and 6.5 ms with one shared TLS channel. `disconnect()` closes a shared channel o
 The async twin is `ondewo.utils.async_base_services_interface.build_shared_channel`. Warm it up with
 `channel.get_state(try_to_connect=True)` (starts connecting, returns at once) or `await channel.channel_ready()`.
 **Construct async clients inside the running event loop that uses them**: a `grpc.aio` channel belongs to the loop
-it was created in.
+it was created in. Built outside a running loop (e.g. in sync code before `asyncio.run(...)`), the first RPC fails
+with `RuntimeError: ... attached to a different loop`.
+
+Connection defaults: recovery and dead connections
+--------------------------------------------------
+
+Every channel the library opens starts from these defaults (a caller's `options` override any of them):
+
+| Option                                                            | Value      | Why                                                                                                   |
+|-------------------------------------------------------------------|------------|-------------------------------------------------------------------------------------------------------|
+| `grpc.max_reconnect_backoff_ms`                                   | 5000       | gRPC's 120 s cap meant 10-65 s until the first successful call after a 30-120 s outage; now 0.3-3.8 s |
+| `grpc.http2.ping_timeout_ms`, `grpc.keepalive_timeout_ms`         | 20000      | A silently dropped connection is detected in ~40 s instead of ~85 s                                   |
+| `grpc.keepalive_time_ms`                                          | 30000      | Pings only during active calls (`keepalive_permit_without_calls` off)                                 |
+| `grpc.http2.max_pings_without_data`                               | 2          | More pings on a silent stream get a `too_many_pings` GOAWAY from a default server                     |
+| `grpc.max_send_message_length`, `grpc.max_receive_message_length` | 2147483647 | No practical message size limit                                                                       |
+
+`grpc.dns_enable_srv_queries` is deliberately not set: it only finds deprecated grpclb balancers and cost ~14 ms per
+channel. Overriding `grpc.keepalive_time_ms` with `2**31-1` (keepalive off) also turns off dead-connection detection
+on idle streams.

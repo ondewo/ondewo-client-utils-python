@@ -21,7 +21,9 @@ from typing import Optional
 
 import pytest
 
-HOOK: Path = Path(__file__).resolve().parent.parent / "scripts" / "hooks" / "conventional_commit_msg.py"
+from tests.conftest import REPO_ROOT
+
+HOOK: Path = REPO_ROOT / "scripts" / "hooks" / "conventional_commit_msg.py"
 
 
 def _load_hook() -> ModuleType:

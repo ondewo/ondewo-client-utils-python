@@ -71,7 +71,8 @@ the first close error.
 ### Channel defaults and latency
 
 - **One shared channel is the latency lever, and it is opt-in.** By default each service interface opens its own
-  channel: N services = N TCP connections, N resolutions, N TLS handshakes. `build_shared_channel(config,
+  channel: N channel set-ups, and over TLS N TCP connections and N handshakes (plaintext channels to one target share
+  a connection via gRPC's global subchannel pool, measured, but still pay per-channel set-up). `build_shared_channel(config,
   use_secure_channel, service_classes)` builds one, with `service_config_json_for_classes(tuple)` (the union of the
   per-class configs; `methodConfig` names fully qualified service/method, so no method's policy changes), and each
   service takes it via the keyword-only `grpc_channel=`. Measured: 16 services, construction + first call each, 44.1
@@ -83,6 +84,20 @@ the first close error.
   Never set `max_pings_without_data=0`: a default grpc-core server GOAWAYs a client that keeps pinging a silent stream
   (`too_many_pings`; measured UNAVAILABLE after 50 s at a 10 s keepalive, OK with 2), which tears down the shared
   connection and every non-retried RPC on it. Do not "re-disable" keepalive back to `2**31-1` either.
+- **Dead-connection detection** (`http2.ping_timeout_ms=20000`, `keepalive_timeout_ms=20000`): in grpc-core the wait
+  for a ping reply is `http2.ping_timeout_ms` (default 60 s), NOT `keepalive_timeout_ms`; the latter becomes the
+  socket's `TCP_USER_TIMEOUT`. Measured with a blackholing proxy: 85 s to UNAVAILABLE with 60000 / unset, ~40 s with
+  both at 20000. Changing only `keepalive_timeout_ms` changes nothing.
+- **Reconnect backoff** (`max_reconnect_backoff_ms=5000`, gRPC default 120 s): measured time from server back to first
+  OK call — 30 s outage 10-15 s → 0.3-1.1 s, 120 s outage up to 65 s → under 3.4 s. Outages under ~10 s unaffected.
+- All of the above are pinned by `test_the_recovery_and_dead_connection_defaults_are_pinned`. Downstream (vtsi
+  `call_deployer.py`, `services_configs.py`; csi `config.py`) still passes its own options with SRV queries on and
+  keepalive off for some channels — that undoes these defaults there; fix it in those repos, not here.
+- **No "built outside a running loop" warning for grpc.aio.** Measured: set the loop first, build outside, then
+  `run_until_complete` on that loop works; only building before the loop exists fails. A `get_running_loop()` check
+  would warn on the valid pattern. The README states the rule instead.
+- `host_and_port` brackets bare IPv6 literals (`ipaddress`), leaves `[...]` / `scheme:` hosts alone.
+- `disconnect()` catches `BaseException` per channel (CancelledError / KeyboardInterrupt), closes the rest, re-raises.
 - **Logging:** the insecure-channel warning goes to a module logger and names `host:port`. Never call the module-level
   `logging.warning()` / `logging.info()`: they run `basicConfig()` on the HOST application's root logger. Error
   messages never interpolate a config object (downstream subclasses carry passwords); name the class and

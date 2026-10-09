@@ -17,8 +17,6 @@ Pin the declared protobuf range: downstream SDKs resolve against it, not against
 PYSEC-2026-1805 is fixed in 5.29.6 / 6.33.5 and PYSEC-2026-1806 in 5.29.5 / 6.31.1.
 """
 
-import tomllib
-from pathlib import Path
 from typing import (
     Any,
     Dict,
@@ -28,8 +26,7 @@ from typing import (
 import pytest
 from packaging.requirements import Requirement
 
-
-PYPROJECT: Path = Path(__file__).resolve().parent.parent / "pyproject.toml"
+from tests.conftest import load_pyproject
 
 
 def _protobuf_requirement() -> Requirement:
@@ -40,7 +37,7 @@ def _protobuf_requirement() -> Requirement:
         Requirement:
             The parsed requirement.
     """
-    pyproject: Dict[str, Any] = tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))
+    pyproject: Dict[str, Any] = load_pyproject()
     requirements: List[Requirement] = [Requirement(dep) for dep in pyproject["project"]["dependencies"]]
     (protobuf,) = [requirement for requirement in requirements if requirement.name == "protobuf"]
     return protobuf

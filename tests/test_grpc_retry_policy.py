@@ -21,6 +21,7 @@ from typing import (
     Dict,
     List,
     Mapping,
+    Tuple,
 )
 
 import pytest
@@ -99,11 +100,6 @@ def test_read_verbs_match_as_whole_words(name: str, expected: bool) -> None:
     assert (policy.READ_ONLY_METHOD_NAME_PATTERN.match(name) is not None) is expected
 
 
-def test_the_default_config_retries_nothing_beyond_grpc_itself() -> None:
-    """Verify a config without services has only the policy-less ``{}`` default entry."""
-    assert json.loads(policy.build_service_config_json([])) == {"methodConfig": [{"name": [{}]}]}
-
-
 def test_discovery_finds_the_service_through_the_pb2_module(retry_test_service_module: ModuleType) -> None:
     """Verify the idempotent methods are derived from the ``*_pb2`` module the class's module imports."""
     service_config_json: str = policy.service_config_json_for(_class_in(retry_test_service_module))
@@ -153,20 +149,26 @@ def test_the_config_is_built_once_per_class(retry_test_service_module: ModuleTyp
     assert policy.service_config_json_for(service_class) is policy.service_config_json_for(service_class)
 
 
-def _nlu_sessions_service() -> ServiceDescriptor:
+def _nlu_sessions_service(
+    method_names: Tuple[str, ...] = ("GetSessionReview", "GetLatestSessionReview", "GetSession"),
+) -> ServiceDescriptor:
     """
     Build a real ``ondewo.nlu.Sessions`` descriptor in a private pool.
 
+    Args:
+        method_names (Tuple[str, ...]):
+            The methods. Defaults to the two get-or-create review reads and a plain ``GetSession``.
+
     Returns:
         ServiceDescriptor:
-            A service with the two get-or-create review reads and a plain ``GetSession``.
+            The service.
     """
     file_proto: descriptor_pb2.FileDescriptorProto = descriptor_pb2.FileDescriptorProto(
         name="ondewo/nlu/session_denylist_test.proto", package="ondewo.nlu", syntax="proto3"
     )
     file_proto.message_type.add(name="Msg")
     service: descriptor_pb2.ServiceDescriptorProto = file_proto.service.add(name="Sessions")
-    for method_name in ("GetSessionReview", "GetLatestSessionReview", "GetSession"):
+    for method_name in method_names:
         service.method.add(name=method_name, input_type=".ondewo.nlu.Msg", output_type=".ondewo.nlu.Msg")
     pool: descriptor_pool.DescriptorPool = descriptor_pool.DescriptorPool()
     pool.Add(file_proto)
@@ -181,6 +183,12 @@ def test_get_or_create_reads_are_never_retried() -> None:
     assert policy.is_idempotent_method(methods["GetLatestSessionReview"]) is False
     assert policy.is_idempotent_method(methods["GetSession"]) is True
     assert _idempotent_methods(policy.build_service_config_json([service])) == ["GetSession"]
+
+
+def test_a_service_of_only_denylisted_reads_gets_only_the_default_entry() -> None:
+    """Verify no ``retryPolicy`` entry at all is emitted when every read of a service is denylisted."""
+    service: ServiceDescriptor = _nlu_sessions_service(("GetSessionReview", "GetLatestSessionReview"))
+    assert json.loads(policy.build_service_config_json([service])) == {"methodConfig": [{"name": [{}]}]}
 
 
 def test_the_denylist_is_pinned() -> None:
@@ -252,3 +260,29 @@ def test_services_of_several_pb2_modules_are_sorted_and_deterministic(
     assert services == sorted(services)
     assert services[0] == AGENTS_TEST_SERVICE
     assert services[-1] == RETRY_TEST_SERVICE
+
+
+def test_the_union_config_does_not_depend_on_the_order_of_the_classes(
+    retry_test_service_module: ModuleType, agents_test_service_module: ModuleType
+) -> None:
+    """Verify ``(calls, agents)`` and ``(agents, calls)`` give the byte-identical config (services are sorted)."""
+    calls: type = _class_in(retry_test_service_module)
+    agents: type = type("Agents", (), {"__module__": agents_test_service_module.__name__})
+    assert policy.service_config_json_for_classes((calls, agents)) == policy.service_config_json_for_classes(
+        (agents, calls)
+    )
+
+
+def test_the_per_class_config_sorts_services_discovered_in_any_order(
+    monkeypatch: pytest.MonkeyPatch, retry_test_service_module: ModuleType, agents_test_service_module: ModuleType
+) -> None:
+    """Verify services discovered in reverse ``full_name`` order are still emitted sorted, independent of hashing."""
+    calls: ServiceDescriptor = retry_test_service_module.calls_pb2.DESCRIPTOR.services_by_name["Calls"]
+    agents: ServiceDescriptor = agents_test_service_module.agents_pb2.DESCRIPTOR.services_by_name["Agents"]
+    monkeypatch.setattr(
+        policy, "_services_for", lambda service_class: {RETRY_TEST_SERVICE: calls, AGENTS_TEST_SERVICE: agents}
+    )
+    config_json: str = policy.service_config_json_for(type("Both", (), {}))
+    services: List[str] = [name["service"] for name in json.loads(config_json)["methodConfig"][0]["name"]]
+    assert services[0] == AGENTS_TEST_SERVICE
+    assert services == sorted(services)

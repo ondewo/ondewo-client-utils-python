@@ -34,6 +34,7 @@ import pytest
 from ondewo.utils.async_base_client import AsyncBaseClient
 from ondewo.utils.base_client_config import BaseClientConfig
 from ondewo.utils.base_service_container import BaseServicesContainer
+from tests.conftest import local_config
 
 
 @dataclass
@@ -117,60 +118,74 @@ class _EmptyAsyncClient(AsyncBaseClient):
         return
 
 
-def _config() -> BaseClientConfig:
-    """
-    Build a throwaway client configuration pointing at localhost.
-
-    Returns:
-        BaseClientConfig:
-            A configuration with host ``"localhost"`` and port ``"50051"``.
-    """
-    return BaseClientConfig(host="localhost", port="50051")
-
-
 def test_init_sets_services() -> None:
     """Verify that constructing a client populates ``services``."""
-    client: _AsyncClient = _AsyncClient(config=_config())
+    client: _AsyncClient = _AsyncClient(config=local_config())
     assert client.services is not None
 
 
 def test_init_without_services_raises() -> None:
     """Verify that a client leaving ``services`` unset raises ``ValueError``."""
     with pytest.raises(ValueError, match="must be defined"):
-        _EmptyAsyncClient(config=_config())
+        _EmptyAsyncClient(config=local_config())
 
 
 async def test_connect_when_already_connected_raises() -> None:
     """Verify that connecting an already-connected client raises ``ConnectionError``."""
-    client: _AsyncClient = _AsyncClient(config=_config())
+    client: _AsyncClient = _AsyncClient(config=local_config())
+    connected: Any = client.services
+    channel: Any = connected.svc.grpc_channel
     with pytest.raises(ConnectionError, match="already has an open connection"):
-        await client.connect(config=_config(), use_secure_channel=True)
+        await client.connect(config=local_config(), use_secure_channel=True)
+    assert client.services is connected
+    channel.close.assert_not_awaited()
 
 
 async def test_disconnect_closes_channels_and_clears() -> None:
     """Verify that disconnecting closes each gRPC channel and clears ``services``."""
-    client: _AsyncClient = _AsyncClient(config=_config())
+    client: _AsyncClient = _AsyncClient(config=local_config())
     service: Any = client.services.svc  # type: ignore[union-attr]
     await client.disconnect()
     service.grpc_channel.close.assert_awaited_once_with(grace=None)
     assert client.services is None
 
 
-async def test_disconnect_without_services_raises() -> None:
-    """Verify that disconnecting with ``services`` unset raises ``AttributeError``."""
-    client: _AsyncClient = _AsyncClient(config=_config())
-    client.services = None
+async def test_disconnecting_twice_raises() -> None:
+    """Verify a second ``disconnect`` raises ``AttributeError`` and does not close the channel again."""
+    client: _AsyncClient = _AsyncClient(config=local_config())
+    service: Any = client.services.svc  # type: ignore[union-attr]
+    await client.disconnect()
     with pytest.raises(AttributeError, match="is not defined"):
         await client.disconnect()
+    service.grpc_channel.close.assert_awaited_once_with(grace=None)
 
 
 async def test_connect_after_disconnect_reinitializes() -> None:
     """Verify that a client can reconnect after a disconnect."""
-    client: _AsyncClient = _AsyncClient(config=_config())
+    client: _AsyncClient = _AsyncClient(config=local_config())
+    old_channel: Any = client.services.svc.grpc_channel  # type: ignore[union-attr]
     await client.disconnect()
     assert client.services is None
-    await client.connect(config=_config(), use_secure_channel=True)
+    await client.connect(config=local_config(), use_secure_channel=True)
     assert client.services is not None
+    assert client.services.svc.grpc_channel is not old_channel  # type: ignore[union-attr]
+
+
+async def test_init_and_connect_forward_every_argument() -> None:
+    """Verify ``__init__`` and ``connect`` hand config, channel security and options to ``_initialize_services``."""
+    config: BaseClientConfig = local_config()
+    with mock.patch.object(
+        _AsyncClient, "_initialize_services", autospec=True, side_effect=_AsyncClient._initialize_services
+    ) as initialize:
+        default: _AsyncClient = _AsyncClient(config=config)
+        client: _AsyncClient = _AsyncClient(config=config, use_secure_channel=False, options={("k", 1)})
+        await client.disconnect()
+        await client.connect(config=config, use_secure_channel=False, options={("k", 2)})
+    assert initialize.call_args_list == [
+        mock.call(default, config=config, use_secure_channel=True, options=None),
+        mock.call(client, config=config, use_secure_channel=False, options={("k", 1)}),
+        mock.call(client, config=config, use_secure_channel=False, options={("k", 2)}),
+    ]
 
 
 @dataclass
@@ -227,7 +242,7 @@ def _client_with(services: BaseServicesContainer) -> _AsyncClient:
         _AsyncClient:
             A client whose ``services`` is ``services``.
     """
-    client: _AsyncClient = _AsyncClient(config=_config())
+    client: _AsyncClient = _AsyncClient(config=local_config())
     client.services = services
     return client
 
@@ -299,16 +314,11 @@ async def test_a_cancelled_disconnect_still_closes_every_channel() -> None:
 
 
 async def test_a_shared_channel_is_closed_once() -> None:
-    """Verify a channel held by two services is closed exactly once."""
-    shared: Any = _make_service()
-    client: _AsyncClient = _client_with(_TwoServices(first=shared, second=shared))
+    """Verify one channel held by two distinct services is closed exactly once."""
+    first: Any = _make_service()
+    second: Any = _make_service()
+    second.grpc_channel = first.grpc_channel
+    client: _AsyncClient = _client_with(_TwoServices(first=first, second=second))
     await client.disconnect()
-    shared.grpc_channel.close.assert_awaited_once_with(grace=None)
-
-
-async def test_services_are_cleared_when_a_service_has_no_channel() -> None:
-    """Verify ``services`` is cleared even when reading a channel raises."""
-    client: _AsyncClient = _client_with(_TwoServices(first=_make_service(), second=None))
-    with pytest.raises(AttributeError, match="grpc_channel"):
-        await client.disconnect()
+    first.grpc_channel.close.assert_awaited_once_with(grace=None)
     assert client.services is None

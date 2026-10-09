@@ -19,6 +19,7 @@ Verify that ``BaseServicesContainer`` is a dataclass and can be instantiated.
 """
 
 import dataclasses
+from typing import Any
 
 from ondewo.utils.base_service_container import BaseServicesContainer
 
@@ -33,3 +34,32 @@ def test_is_dataclass_and_instantiable() -> None:
     """
     container: BaseServicesContainer = BaseServicesContainer()
     assert dataclasses.is_dataclass(container)
+
+
+@dataclasses.dataclass
+class _ParentServices(BaseServicesContainer):
+    """
+    A container declaring one service, extended below.
+
+    Attributes:
+        parent_svc (Any): A service declared on the parent.
+    """
+
+    parent_svc: Any = None
+
+
+@dataclasses.dataclass
+class _ChildServices(_ParentServices):
+    """
+    A container inheriting ``parent_svc`` and adding ``child_svc``.
+
+    Attributes:
+        child_svc (Any): A service declared on the child.
+    """
+
+    child_svc: Any = None
+
+
+def test_a_subclassed_container_enumerates_inherited_fields_first() -> None:
+    """Verify ``dataclasses.fields`` (what ``disconnect`` walks) lists parent fields, then the child's, in order."""
+    assert [field.name for field in dataclasses.fields(_ChildServices())] == ["parent_svc", "child_svc"]

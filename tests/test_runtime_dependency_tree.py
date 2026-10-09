@@ -20,7 +20,6 @@ package only to get rid of both) inherits this package's runtime closure.
 """
 
 import tomllib
-from pathlib import Path
 from typing import (
     Any,
     Dict,
@@ -28,7 +27,10 @@ from typing import (
     Set,
 )
 
-REPO_ROOT: Path = Path(__file__).resolve().parent.parent
+from tests.conftest import (
+    REPO_ROOT,
+    load_pyproject,
+)
 
 
 def _runtime_closure() -> Set[str]:
@@ -60,8 +62,6 @@ def test_neither_dataclasses_json_nor_marshmallow_is_a_runtime_dependency() -> N
 
 def test_pyproject_declares_orjson_and_not_dataclasses_json() -> None:
     """Verify the declared dependencies, which downstream resolves against instead of this lock."""
-    declared: str = " ".join(
-        tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]["dependencies"]
-    )
+    declared: str = " ".join(load_pyproject()["project"]["dependencies"])
     assert "orjson>=" in declared
     assert "dataclasses-json" not in declared and "marshmallow" not in declared
