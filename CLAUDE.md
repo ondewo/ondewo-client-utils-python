@@ -90,9 +90,12 @@ the first close error.
   both at 20000. Changing only `keepalive_timeout_ms` changes nothing.
 - **Reconnect backoff** (`max_reconnect_backoff_ms=5000`, gRPC default 120 s): measured time from server back to first
   OK call — 30 s outage 10-15 s → 0.3-1.1 s, 120 s outage up to 65 s → under 3.4 s. Outages under ~10 s unaffected.
-- All of the above are pinned by `test_the_recovery_and_dead_connection_defaults_are_pinned`. Downstream (vtsi
-  `call_deployer.py`, `services_configs.py`; csi `config.py`) still passes its own options with SRV queries on and
-  keepalive off for some channels — that undoes these defaults there; fix it in those repos, not here.
+- All of the above are pinned by `test_the_recovery_and_dead_connection_defaults_are_pinned`. Downstream overrides
+  that undid them (vtsi `call_deployer.py`, `services_configs.py`; csi `config.py`, `speech2speech.py`: SRV queries
+  on, keepalive off) are removed on the `OND211-2443-grpc-channel-defaults` (vtsi) and
+  `OND211-2443-csi-grpc-defaults-and-typing` (csi/sip) branches. A downstream channel that passes its own keepalive
+  options must keep `http2.max_pings_without_data` > 0 (vtsi's CAI auth channel had 0). Fix such overrides in the
+  consuming repo, not here.
 - **No "built outside a running loop" warning for grpc.aio.** Measured: set the loop first, build outside, then
   `run_until_complete` on that loop works; only building before the loop exists fails. A `get_running_loop()` check
   would warn on the valid pattern. The README states the rule instead.
@@ -136,8 +139,14 @@ ondewo-vtsi-release #115 that re-sent a `StartCallers` the server was already ex
   config shape to a real sync and `grpc.aio` channel (acceptance = an RPC reaches the server) and pins the edge cases.
 - **Streaming:** the same name rule applies to streaming methods (`GetControlStream` is retried); gRPC never retries a
   stream after its first response reached the client.
-- **ondewo-vtsi still carries its own copy** (`ondewo_vtsi/utils/grpc_retry_policy.py`), which treats `SipGet*` as
-  reads, i.e. wider than this library. Reconcile that before vtsi drops its copy for this one.
+- **ondewo-vtsi keeps its own policy builder** (`ondewo_vtsi/utils/grpc_retry_policy.py`; its sip channel is narrower:
+  3 attempts on `UNAVAILABLE` / `RESOURCE_EXHAUSTED`), but on `OND211-2443-grpc-channel-defaults` it takes the
+  idempotent-method decision from this library plus an explicit allowlist of exactly `ondewo.sip.Sip.SipGetSipStatus`
+  and `SipGetSipStatusHistory` (verified side-effect free; `CallMonitor` needs the history read retried). The clean
+  long-term fix is `idempotency_level = NO_SIDE_EFFECTS` on those two RPCs in ondewo-sip-api, which this library
+  already honours; do not widen the name rule to namespaced verbs instead.
+- **ondewo-csi** passed its own `grpc.service_config` retrying every method; on
+  `OND211-2443-csi-grpc-defaults-and-typing` its upstream channels use this library's per-method policy instead.
 - Pinned by `tests/test_retry_only_idempotent_methods.py` (written against the public surface; 45 of its cases fail on
   the old policy, incl. a real server executing a failing `StartCallers` 5 times) and `tests/test_grpc_retry_policy.py`.
 
