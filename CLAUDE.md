@@ -284,6 +284,67 @@ Raises:
 - Downstream release images build on `python:3.12-slim`, which has **no `setuptools`** — anything running `python setup.py …` must `pip install setuptools wheel` first.
 - gRPC keepalive: see "Channel defaults and latency" above (`max_pings_without_data=2`, never 0).
 
+## Releasing: preflight and the traps that have bitten
+
+Written after a release program across every ONDEWO client. Each item cost real time or a broken artefact in some
+ONDEWO repo; the commands are adapted to THIS repo's Makefile.
+
+### Before you touch the version, check the released tag is in `master`
+
+Releases are cut from a `release/<version>` branch and are **not always merged back**, so `master` can miss work that
+is already published — and a later version number then silently drops it for consumers. ondewo-nlu-client-python 7.1.0
+shipped from a `master` that had never seen 7.0.5's offline-token hand-off.
+
+```bash
+latest=$(git tag --sort=-v:refname | head -1)
+git merge-base --is-ancestor "$latest" master && echo "in master" || echo "NOT in master -- merge first"
+```
+
+A fast-forward (`git merge --ff-only <tag>`) is the common case. A true merge: resolve metadata toward `master` and keep
+BOTH `RELEASE.md` sections, newest first.
+
+### Run the release from `master`, and check with `git branch --show-current`
+
+`create_release_branch` checks out `release/<version>` and **nothing checks you out back**. Start the next release from
+that leftover checkout and the new branch and tag are cut from the old release branch; `master` never sees the release
+(ondewo-csi-client-typescript 5.5.1). Recovery is `git merge --ff-only release/<version>` on `master` if nothing else
+moved, a real merge otherwise.
+
+```bash
+git branch --show-current            # must print master BEFORE `make ondewo_release`
+```
+
+### Write the RELEASE.md section BEFORE releasing, or the GitHub release body is silently empty
+
+`CURRENT_RELEASE_NOTES` slices `RELEASE.md` from the `Release ONDEWO CLIENT UTILS PYTHON <version>` heading to the next
+`**` line. No heading means an empty slice, `gh release create -n ""` succeeds, and the release has no notes and no
+error (ondewo-nlu-client-js and -typescript 7.1.1).
+
+```bash
+sed -n "/Release ONDEWO CLIENT UTILS PYTHON $(uv run python -c 'from ondewo.version import __version__ as v; print(v)')/,/\*\*/p" RELEASE.md | wc -l   # must be > 1
+```
+
+### Publish order decides how a partial failure is recovered
+
+`make release` runs, in order: `create_release_branch` → `create_release_tag` → `build_and_release_to_github_via_docker`
+→ `build_and_push_to_pypi_via_docker`. **PyPI is last**, so a failure there leaves branch, tag and GitHub release in
+place. Do **not** re-run `make ondewo_release`: `spc` refuses once the branch or tag exists. Re-run only the failed
+step with the credentials it needs in the environment (`GITHUB_GH_TOKEN`, or `PYPI_USERNAME` / `PYPI_PASSWORD`). A
+version already on PyPI cannot be re-uploaded.
+
+### Verify the three artefacts separately — they fail independently
+
+GitHub's release API has returned 500 leaving the tag and registry correct and **no release object** (nlu-client-js and
+-angular 7.1.1); `gh release create` afterwards repairs it. PyPI is eventually consistent: a fresh release can read as
+absent for a minute, which `uv lock` reports as `no version of <pkg>==<v> ... unsatisfiable` — that is the cache;
+`uv lock --refresh-package <pkg>` resolves it. Do not burn a version number over it. The distribution name is
+`ondewo-client-utils`, not the repository name.
+
+```bash
+curl -s https://pypi.org/pypi/ondewo-client-utils/json | python3 -c 'import sys,json;print(json.load(sys.stdin)["info"]["version"])'
+git tag --list <version> ; gh release view <version> --json body --jq '.body|length'
+```
+
 ## Python tooling — uv + ruff + mypy + pyproject.toml (this session's refactor)
 
 This repo was migrated off `setup.py` / `.flake8` / `mypy.ini` to a single **pyproject.toml** with **uv**, **ruff**, and **mypy**. Going forward:
