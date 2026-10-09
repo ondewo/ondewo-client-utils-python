@@ -358,11 +358,12 @@ git branch --show-current            # must print master BEFORE `make ondewo_rel
 ### Write the RELEASE.md section BEFORE releasing, or the GitHub release body is silently empty
 
 `CURRENT_RELEASE_NOTES` slices `RELEASE.md` from the `Release ONDEWO CLIENT UTILS PYTHON <version>` heading to the next
-`**` line. No heading means an empty slice, `gh release create -n ""` succeeds, and the release has no notes and no
-error (ondewo-nlu-client-js and -typescript 7.1.1).
+`*****` separator line. No heading means an empty slice, `gh release create -n ""` succeeds, and the release has no
+notes and no error (ondewo-nlu-client-js and -typescript 7.1.1). The slice used to end at any `**`, which truncated
+4.1.0's notes at its first `**kwargs`. `tests/test_release_notes.py` pins all of this.
 
 ```bash
-sed -n "/Release ONDEWO CLIENT UTILS PYTHON $(uv run python -c 'from ondewo.version import __version__ as v; print(v)')/,/\*\*/p" RELEASE.md | wc -l   # must be > 1
+perl -ne "print if /Release ONDEWO CLIENT UTILS PYTHON $(uv run python -c 'from ondewo.version import __version__ as v; print(v)')/../^\*{5}/" RELEASE.md | wc -l   # must be > 1
 ```
 
 ### Publish order decides how a partial failure is recovered

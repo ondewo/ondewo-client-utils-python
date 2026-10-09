@@ -35,8 +35,11 @@ PYPI_PASSWORD?=ENTER_HERE_YOUR_PYPI_PASSWORD
 # You need to setup an access token at https://github.com/settings/tokens - permissions are important
 GITHUB_GH_TOKEN?=ENTER_YOUR_TOKEN_HERE
 
+# Terminate on the ***** separator that delimits release entries, NOT on /\*\*/ — that matched the first
+# markdown **bold** span (or `**kwargs`) inside the entry and silently truncated the notes there, with no error from
+# `gh release create` (4.1.0 lost its last bug fix). Same fix as ondewo-nlu-client-python's Makefile.
 CURRENT_RELEASE_NOTES=`cat RELEASE.md \
-	| sed -n '/Release ONDEWO CLIENT UTILS PYTHON ${ONDEWO_PACKAGE_VERSION}/,/\*\*/p'`
+	| perl -ne 'print if /Release ONDEWO CLIENT UTILS PYTHON ${ONDEWO_PACKAGE_VERSION}/../^\*{5}/'`
 
 
 # Choose repo to release to - Example: "https://github.com/ondewo/ondewo-nlu-client-python"
