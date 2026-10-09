@@ -20,7 +20,7 @@ RUN apt-get update -qq  \
 # uv builds the wheel/sdist (setuptools backend, resolved from pyproject.toml + uv.lock);
 # twine uploads to PyPI.
 # Pinned: a floating :latest makes the release image unreproducible.
-COPY --from=ghcr.io/astral-sh/uv:0.12.23 /uv /usr/local/bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.12.24 /uv /usr/local/bin/uv
 
 RUN pip install --upgrade pip && pip install twine
 
