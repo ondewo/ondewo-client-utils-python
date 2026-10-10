@@ -19,14 +19,16 @@ visible to every user on the host for the life of the process; an ``echo`` puts 
 """
 
 import re
+from pathlib import Path
 from typing import List
 
 from tests.conftest import REPO_ROOT
 
 MAKEFILE: str = (REPO_ROOT / "Makefile").read_text(encoding="utf-8")
 DOCKERFILE_UTILS: str = (REPO_ROOT / "Dockerfile.utils").read_text(encoding="utf-8")
+WORKFLOWS: List[Path] = sorted((REPO_ROOT / ".github" / "workflows").glob("*.y*ml"))
 
-SECRET_NAMES: str = r"(?:PYPI_PASSWORD|GITHUB_GH_TOKEN)"
+SECRET_NAMES: str = r"(?:PYPI_USERNAME|PYPI_PASSWORD|GITHUB_GH_TOKEN)"
 
 
 def test_no_recipe_echoes_a_secret() -> None:
@@ -54,6 +56,21 @@ def test_the_devops_release_hands_the_credentials_over_the_environment() -> None
     assert re.search(r"\$\(MAKE\) release\s*$", recipe) is not None
 
 
+def test_no_sub_make_gets_a_secret_on_its_argv() -> None:
+    """Verify no ``make`` / ``$(MAKE)`` call in any recipe carries ``NAME=<value>`` or ``$(info)``."""
+    recipe_lines: List[str] = [line for line in MAKEFILE.splitlines() if line.startswith("\t")]
+    make_calls: List[str] = [line for line in recipe_lines if re.search(r"(?:\bmake\b|\$\(MAKE\))", line)]
+    assert [line for line in make_calls if "$(info)" in line or re.search(rf"\b{SECRET_NAMES}=", line)] == []
+
+
+def test_workflow_run_lines_never_interpolate_a_secret() -> None:
+    """Verify ``${{ secrets.X }}`` only appears as an ``env:`` / ``with:`` value, never inside a ``run:`` command."""
+    for workflow in WORKFLOWS:
+        for line in workflow.read_text(encoding="utf-8").splitlines():
+            if "secrets." in line:
+                assert re.match(r"^\s*(?!run:)[\w-]+:\s*\$\{\{\s*secrets\.\w+\s*\}\}\s*$", line), workflow.name
+
+
 def test_twine_never_gets_the_password_on_its_argv() -> None:
     """Verify twine reads the password from the environment, not from ``-p<password>``."""
     assert re.search(r"-p\s*\$[{(]PYPI_PASSWORD[})]", MAKEFILE) is None
@@ -61,8 +78,10 @@ def test_twine_never_gets_the_password_on_its_argv() -> None:
 
 
 def test_docker_run_never_gets_a_secret_value_on_its_argv() -> None:
-    """Verify ``docker run -e`` forwards the secrets by name only, never ``-e NAME=<value>``."""
-    assert re.search(rf"-e\s+{SECRET_NAMES}=", MAKEFILE) is None
+    """Verify docker forwards the secrets by name only (never ``-e`` / ``--env NAME=<value>``) and never as a build arg."""
+    assert re.search(rf"(?:-e|--env)[ \t=]+{SECRET_NAMES}=", MAKEFILE) is None
+    assert re.search(rf"--build-arg[ \t=]+{SECRET_NAMES}", MAKEFILE) is None
+    assert re.search(rf"^\s*ARG\s+{SECRET_NAMES}\b", DOCKERFILE_UTILS, flags=re.MULTILINE) is None
     assert re.search(r"-e\s+PYPI_PASSWORD\s", MAKEFILE) is not None
     assert re.search(r"-e\s+GITHUB_GH_TOKEN\s", MAKEFILE) is not None
 
