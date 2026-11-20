@@ -29,8 +29,6 @@ classifiers = [
 dependencies = [
     "googleapis-common-protos>=1.63.2",
     "grpcio>=1.65.5",
-    "grpcio-reflection>=1.65.5",
-    "grpcio-tools>=1.65.5",
     # BaseClientConfig.to_json / from_json. 3.11.1 is the first release with CPython 3.14 wheels.
     "orjson>=3.11.1",
     # ondewo.utils imports google.protobuf (descriptor, descriptor_pb2, struct_pb2) directly, so it
@@ -47,6 +45,8 @@ dependencies = [
 # pytest-asyncio were already present.
 dev = [
     "Cython>=3.0.0",
+    # cython_compile.py (make cython) imports setuptools; it used to arrive only through grpcio-tools.
+    "setuptools>=83.0.0",
     # Test-only: mints the throwaway CAs and leaves the mutual-TLS tests handshake against.
     "cryptography>=42.0.0",
     # Same version as the ruff-pre-commit hook rev, so `make ruff`, CI and the hook agree.
