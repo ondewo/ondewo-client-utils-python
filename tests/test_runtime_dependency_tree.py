@@ -65,3 +65,10 @@ def test_pyproject_declares_orjson_and_not_dataclasses_json() -> None:
     declared: str = " ".join(load_pyproject()["project"]["dependencies"])
     assert "orjson>=" in declared
     assert "dataclasses-json" not in declared and "marshmallow" not in declared
+
+
+def test_grpc_build_tooling_is_not_a_runtime_dependency() -> None:
+    """Verify grpcio-tools and grpcio-reflection stay out: nothing in ``ondewo.utils`` imports them."""
+    assert not _runtime_closure() & {"grpcio-tools", "grpcio-reflection"}
+    declared: str = " ".join(load_pyproject()["project"]["dependencies"])
+    assert "grpcio-tools" not in declared and "grpcio-reflection" not in declared

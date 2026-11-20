@@ -2,6 +2,14 @@
 
 *****************
 
+## Release ONDEWO CLIENT UTILS PYTHON 4.2.0
+
+### Improvements
+
+* `grpcio-tools` and `grpcio-reflection` are no longer runtime dependencies. Nothing in `ondewo.utils` imports them, and they put the protobuf compiler and `setuptools` into every downstream install. A project that generates stubs or serves reflection declares them itself
+
+*****************
+
 ## Release ONDEWO CLIENT UTILS PYTHON 4.1.1
 
 ### Bug Fixes
